@@ -124,6 +124,30 @@ export const editSupplierByAdmin = async (req, res) => {
   }
 };
 
+export const getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).select("-password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+      });
+    }
+    res.status(200).json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    console.error("Get User By ID Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ في جلب بيانات المستخدم",
+    });
+  }
+};
+
 // GET /api/users
 export const getAllUsers = async (req, res) => {
   try {

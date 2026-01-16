@@ -1,0 +1,65 @@
+import mongoose from "mongoose";
+
+const { Schema, model } = mongoose;
+
+const OrderSchema = new Schema(
+  {
+    trader: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "التاجر مطلوب"],
+    },
+    supplier: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "المورد مطلوب"],
+    },
+    products: [
+      {
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Product",
+          required: [true, "المنتج مطلوب"],
+        },
+        quantity: {
+          type: Number,
+          required: [true, "الكمية مطلوبة"],
+          min: [1, "يجب أن تكون الكمية على الأقل 1"],
+        },
+        priceAtOrder: {
+          type: Number,
+          required: [true, "السعر عند الطلب مطلوب"],
+        },
+      },
+    ],
+    totalAmount: {
+      type: Number,
+      required: [true, "المبلغ الإجمالي مطلوب"],
+      min: [0, "لا يمكن أن يكون المبلغ الإجمالي سالبًا"],
+    },
+    status: {
+      type: String,
+      enum: ["pending", "confirmed", "shipped", "delivered", "cancelled"],
+      default: "pending",
+    },
+    debt: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Debt",
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+OrderSchema.pre("save", function (next) {
+  if (this.isModified("products")) {
+    this.totalAmount = this.products.reduce(
+      (sum, p) => sum + p.quantity * p.priceAtOrder,
+      0
+    );
+  }
+  next();
+});
+
+export default model("Order", OrderSchema);

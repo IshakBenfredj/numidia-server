@@ -1,0 +1,253 @@
+import Order from "../models/Order.js";
+import Debt from "../models/Debt.js";
+import Product from "../models/Product.js";
+
+export const createOrder = async (req, res) => {
+  try {
+    const trader = req.user._id;
+    const { products: orderedProducts, supplier } = req.body;
+
+    if (
+      !orderedProducts ||
+      !Array.isArray(orderedProducts) ||
+      orderedProducts.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "يجب إضافة منتجات واحد على الأقل",
+      });
+    }
+
+    let totalAmount = 0;
+    const populatedProducts = await Promise.all(
+      orderedProducts.map(async ({ productId, quantity }) => {
+        const product = await Product.findById(productId);
+        if (!product) {
+          throw new Error(`المنتج ${productId} غير موجود`);
+        }
+
+        if (product.quantity < quantity) {
+          throw new Error(`الكمية المطلوبة لـ ${product.name} غير متوفرة`);
+        }
+
+        await Product.findByIdAndUpdate(productId, {
+          $inc: { quantity: -quantity },
+        });
+
+        totalAmount += quantity * product.price;
+
+        return {
+          product: productId,
+          quantity,
+          priceAtOrder: product.price,
+        };
+      })
+    );
+
+    const order = await Order.create({
+      trader,
+      supplier,
+      products: populatedProducts,
+      totalAmount,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "تم إنشاء الطلب بنجاح",
+      order,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message || "فشل إنشاء الطلب",
+    });
+  }
+};
+
+export const confirmOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح - فقط الإدارة يمكنها تأكيد الطلبات",
+      });
+    }
+
+    const order = await Order.findById(id).populate("supplier");
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود",
+      });
+    }
+
+    if (order.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "لا يمكن تأكيد الطلب في حالته الحالية",
+      });
+    }
+
+    order.status = "confirmed";
+
+    let debt = await Debt.findById({
+      supplier: order.supplier,
+      isPaid: false,
+    });
+
+    if (!debt) {
+      debt = await Debt.create({
+        supplier: order.supplier,
+        totalAmount: order.totalAmount * Number(order.supplier.commissionRate),
+      });
+    } else {
+      debt.totalAmount +=
+        order.totalAmount * Number(order.supplier.commissionRate);
+      await debt.save();
+    }
+
+    order.debt = debt ? debt._id : null;
+    await order.save();
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: "تم تأكيد الطلب بنجاح",
+      order,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل تأكيد الطلب",
+    });
+  }
+};
+
+export const getSupplierOrders = async (req, res) => {
+  try {
+    const supplierId = req.user._id;
+
+    const orders = await Order.find({ supplier: supplierId })
+      .populate("trader", "name phone")
+      .populate("products.product", "name price images")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      orders,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل جلب الطلبات",
+    });
+  }
+};
+
+export const getTraderOrders = async (req, res) => {
+  try {
+    const traderId = req.user._id;
+
+    const orders = await Order.find({ trader: traderId })
+      .populate("supplier", "name phone")
+      .populate("products.product", "name price images")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      orders,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل جلب الطلبات",
+    });
+  }
+};
+
+export const getAllOrders = async (req, res) => {
+  try {
+    const orders = await Order.find()
+      .populate("trader", "name phone")
+      .populate("supplier", "name phone")
+      .populate("products.product", "name price images")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.status(200).json({
+      success: true,
+      orders,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل جلب الطلبات",
+    });
+  }
+};
+
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const allowedStatuses = ["confirmed", "shipped", "delivered", "cancelled"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "حالة الطلب غير صالحة",
+      });
+    }
+
+    const order = await Order.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true, runValidators: true }
+    );
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود",
+      });
+    }
+
+    if (status === "cancelled") {
+      for (const item of order.products) {
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { quantity: item.quantity },
+        });
+      }
+
+      const debt = await Debt.findById(order.debt);
+      if (debt) {
+        debt.totalAmount -=
+          order.totalAmount * Number(order.supplier.commissionRate);
+        await debt.save();
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `تم تغيير حالة الطلب إلى ${status}`,
+      order,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل تحديث حالة الطلب",
+    });
+  }
+};
+
+export default {
+  createOrder,
+  confirmOrder,
+  getSupplierOrders,
+  getTraderOrders,
+  updateOrderStatus,
+};
