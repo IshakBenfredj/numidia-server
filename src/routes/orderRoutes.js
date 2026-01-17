@@ -22,6 +22,6 @@ router.get("/my-orders", protect, getTraderOrders);
 
 router.get("/all", protect, admin, getAllOrders);
 
-router.pull("/:id/status", protect, admin, updateOrderStatus);
+router.put("/:id/status", protect, admin, updateOrderStatus);
 
 export default router;
