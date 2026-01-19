@@ -5,7 +5,15 @@ import Product from "../models/Product.js";
 export const createOrder = async (req, res) => {
   try {
     const trader = req.user._id;
-    const { products: orderedProducts, supplier } = req.body;
+    const {
+      products: orderedProducts,
+      supplier,
+      wilaya,
+      city,
+      deliveryType,
+      deliveryAddress,
+      deliverPrice,
+    } = req.body;
 
     if (
       !orderedProducts ||
@@ -15,6 +23,21 @@ export const createOrder = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "يجب إضافة منتجات واحد على الأقل",
+      });
+    }
+
+    // التحقق من بيانات التوصيل
+    if (!wilaya || !deliveryType || !deliverPrice || (deliveryType === "home" && !city)) {
+      return res.status(400).json({
+        success: false,
+        message: "معلومات التوصيل مطلوبة (الولاية، نوع التوصيل)",
+      });
+    }
+
+    if (!["home", "office"].includes(deliveryType)) {
+      return res.status(400).json({
+        success: false,
+        message: "نوع التوصيل يجب أن يكون 'منزل' أو 'مكتب'",
       });
     }
 
@@ -30,6 +53,7 @@ export const createOrder = async (req, res) => {
           throw new Error(`الكمية المطلوبة لـ ${product.name} غير متوفرة`);
         }
 
+        // تقليل المخزون
         await Product.findByIdAndUpdate(productId, {
           $inc: { quantity: -quantity },
         });
@@ -49,6 +73,10 @@ export const createOrder = async (req, res) => {
       supplier,
       products: populatedProducts,
       totalAmount,
+      wilaya,
+      city,
+      deliveryType,
+      deliveryAddress: deliveryAddress || "", 
     });
 
     res.status(201).json({
@@ -57,6 +85,7 @@ export const createOrder = async (req, res) => {
       order,
     });
   } catch (error) {
+    console.error("خطأ في إنشاء الطلب:", error);
     res.status(400).json({
       success: false,
       message: error.message || "فشل إنشاء الطلب",

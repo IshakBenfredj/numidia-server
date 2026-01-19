@@ -198,7 +198,7 @@ export const getMyProducts = async (req, res) => {
 
 export const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find().sort({ createdAt: -1 }).lean();
+    const products = await Product.find().sort({ createdAt: -1 }).populate("supplier").lean();
 
     res.status(200).json({ success: true, products });
   } catch (error) {

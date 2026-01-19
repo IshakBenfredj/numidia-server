@@ -42,6 +42,11 @@ const OrderSchema = new Schema(
       enum: ["pending", "confirmed", "shipped", "delivered", "cancelled"],
       default: "pending",
     },
+    deliverPrice: {
+      type: Number,
+      default: 0,
+      min: [0, "لا يمكن أن يكون سعر التوصيل سالبًا"],
+    },
     debt: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Debt",
@@ -49,17 +54,7 @@ const OrderSchema = new Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
-
-OrderSchema.pre("save", function (next) {
-  if (this.isModified("products")) {
-    this.totalAmount = this.products.reduce(
-      (sum, p) => sum + p.quantity * p.priceAtOrder,
-      0
-    );
-  }
-  next();
-});
 
 export default model("Order", OrderSchema);
