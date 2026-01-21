@@ -1,5 +1,6 @@
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
+import { deleteImage, uploadImageFromBase64 } from "../utils/cloudinary.js";
 
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
@@ -29,13 +30,15 @@ export const createSupplierByAdmin = async (req, res) => {
       });
     }
 
+    const logoUrl = await uploadImageFromBase64(logo);
+
     const supplier = await User.create({
       name,
       phone,
       address,
       password,
       role: "supplier",
-      logo: logo || null,
+      logo: logoUrl || null,
       businessName,
       commissionRate: Number(commissionRate),
       isActive: true,
@@ -81,7 +84,6 @@ export const editSupplierByAdmin = async (req, res) => {
       });
     }
 
-    // تحقق من تكرار رقم الهاتف إذا تم تغييره
     if (phone && phone !== supplier.phone) {
       const existing = await User.findOne({ phone });
       if (existing) {
@@ -90,6 +92,12 @@ export const editSupplierByAdmin = async (req, res) => {
           message: "رقم الهاتف مسجل لمستخدم آخر",
         });
       }
+    }
+
+    if (logo && logo.startsWith("data:")) {
+      const logoUrl = await uploadImageFromBase64(logo);
+      await deleteImage(supplier.logo);
+      supplier.logo = logoUrl;
     }
 
     // تحديث الحقول

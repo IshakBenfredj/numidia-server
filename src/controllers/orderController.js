@@ -12,8 +12,10 @@ export const createOrder = async (req, res) => {
       city,
       deliveryType,
       deliveryAddress,
-      deliverPrice,
+      deliveryPrice,
     } = req.body;
+
+    console.log("بيانات الطلب المستلمة:", req.body);
 
     if (
       !orderedProducts ||
@@ -27,7 +29,12 @@ export const createOrder = async (req, res) => {
     }
 
     // التحقق من بيانات التوصيل
-    if (!wilaya || !deliveryType || !deliverPrice || (deliveryType === "home" && !city)) {
+    if (
+      !wilaya ||
+      !deliveryType ||
+      !deliveryPrice ||
+      (deliveryType === "home" && !city)
+    ) {
       return res.status(400).json({
         success: false,
         message: "معلومات التوصيل مطلوبة (الولاية، نوع التوصيل)",
@@ -65,7 +72,7 @@ export const createOrder = async (req, res) => {
           quantity,
           priceAtOrder: product.price,
         };
-      })
+      }),
     );
 
     const order = await Order.create({
@@ -76,7 +83,8 @@ export const createOrder = async (req, res) => {
       wilaya,
       city,
       deliveryType,
-      deliveryAddress: deliveryAddress || "", 
+      deliveryAddress: deliveryAddress || "",
+      deliveryPrice,
     });
 
     res.status(201).json({
@@ -219,6 +227,76 @@ export const getAllOrders = async (req, res) => {
   }
 };
 
+export const getOrderById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const order = await Order.findById(id)
+      .populate("trader", "name phone")
+      .populate("supplier", "name phone logo")
+      .populate("products.product", "name price images")
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      order,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل جلب الطلب",
+    });
+  }
+};
+
+export const deleteOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+    const userRole = req.user.role;
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود",
+      });
+    }
+    if (userRole !== "admin" && order.trader.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح لك بحذف هذا الطلب",
+      });
+    }
+    if (order.status !== "pending" && order.status !== "cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "لا يمكن حذف الطلب بعد التأكيد أو الشحن",
+      });
+    }
+
+    await Promise.all(
+      order.products.map(async (item) => {
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { quantity: item.quantity },
+        });
+      }),
+    );
+
+    await Order.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: "تم حذف الطلب بنجاح واستعادة المخزون",
+    });
+  } catch (error) {
+    console.error("خطأ في حذف الطلب:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل حذف الطلب",
+    });
+  }
+};
+
 export const updateOrderStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -235,7 +313,7 @@ export const updateOrderStatus = async (req, res) => {
     const order = await Order.findByIdAndUpdate(
       id,
       { status },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     if (!order) {

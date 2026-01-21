@@ -42,10 +42,25 @@ const OrderSchema = new Schema(
       enum: ["pending", "confirmed", "shipped", "delivered", "cancelled"],
       default: "pending",
     },
-    deliverPrice: {
+    deliveryPrice: {
       type: Number,
       default: 0,
       min: [0, "لا يمكن أن يكون سعر التوصيل سالبًا"],
+    },
+    wilaya: {
+      type: String,
+      required: [true, "الولاية مطلوبة"],
+    },
+    city: {
+      type: String,
+    },
+    deliveryType: {
+      type: String,
+      enum: ["home", "office"],
+      required: [true, "نوع التوصيل مطلوب"],
+    },
+    deliveryAddress: {
+      type: String,
     },
     debt: {
       type: mongoose.Schema.Types.ObjectId,
