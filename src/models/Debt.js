@@ -19,10 +19,11 @@ const DebtSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    paidAt: Date,
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 export default model("Debt", DebtSchema);
