@@ -42,9 +42,6 @@ const UserSchema = new Schema(
     logo: {
       type: String,
       default: null,
-      // required: function () {
-      //   return this.role === "supplier";
-      // },
     },
     businessName: {
       type: String,
@@ -73,10 +70,15 @@ const UserSchema = new Schema(
       required: [true, "الدور مطلوب"],
       default: "trader",
     },
-    pendingCommissions: {
-      type: Number,
-      default: 0,
-      min: 0,
+    type: {
+      type: String,
+      enum: {
+        values: ["accessoire", "spart_parts"],
+        message: "نوع المستخدم يجب أن يكون accessoire أو spart parts",
+      },
+      required: function () {
+        return this.role === "supplier";
+      },
     },
   },
   {

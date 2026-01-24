@@ -1,6 +1,9 @@
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import { deleteImage, uploadImageFromBase64 } from "../utils/cloudinary.js";
+import Debt from "../models/Debt.js";
+import Order from "../models/Order.js";
+import Product from "../models/Product.js";
 
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
@@ -13,6 +16,7 @@ export const createSupplierByAdmin = async (req, res) => {
       logo,
       businessName,
       commissionRate = 0.05,
+      type
     } = req.body;
 
     if (!name || !phone || !password || !address || !businessName) {
@@ -38,8 +42,9 @@ export const createSupplierByAdmin = async (req, res) => {
       address,
       password,
       role: "supplier",
-      logo: logoUrl || null,
+      logo: logoUrl.url || null,
       businessName,
+      type,
       commissionRate: Number(commissionRate),
       isActive: true,
     });
@@ -74,6 +79,7 @@ export const editSupplierByAdmin = async (req, res) => {
       businessName,
       commissionRate,
       isActive,
+      type
     } = req.body;
 
     const supplier = await User.findById(id);
@@ -97,7 +103,7 @@ export const editSupplierByAdmin = async (req, res) => {
     if (logo && logo.startsWith("data:")) {
       const logoUrl = await uploadImageFromBase64(logo);
       await deleteImage(supplier.logo);
-      supplier.logo = logoUrl;
+      supplier.logo = logoUrl.url;
     }
 
     // تحديث الحقول
@@ -105,10 +111,10 @@ export const editSupplierByAdmin = async (req, res) => {
     supplier.phone = phone ?? supplier.phone;
     supplier.address = address ?? supplier.address;
     supplier.businessName = businessName ?? supplier.businessName;
-    supplier.logo = logo ?? supplier.logo;
     supplier.commissionRate =
       commissionRate !== undefined ? Number(commissionRate) : supplier.commissionRate;
     supplier.isActive = isActive !== undefined ? isActive : supplier.isActive;
+    supplier.type = type ?? supplier.type;
 
     if (password) {
       supplier.password = await bcrypt.hash(password, 12);
@@ -132,10 +138,42 @@ export const editSupplierByAdmin = async (req, res) => {
   }
 };
 
+// GET /api/users/supplier/:id
+export const getSupplierById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supplier = await User.findById(id);
+
+    if (!supplier || supplier.role !== "supplier") {
+      return res.status(404).json({
+        success: false,
+        message: "المورد غير موجود",
+      });
+    }
+    const debts = await Debt.findOne({ supplier: id, isPaid: false });
+    const ordersCount = await Order.countDocuments({ supplier: id });
+    const productsCount = await Product.countDocuments({ supplier: id });
+
+    supplier._doc.debts = debts.totalAmount;
+    supplier._doc.ordersCount = ordersCount;
+    supplier._doc.productsCount = productsCount;
+    res.status(200).json({
+      success: true,
+      data: supplier,
+    });
+  } catch (error) {
+    console.error("Get Supplier By ID Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ في جلب بيانات المورد",
+    });
+  }
+};
+
 export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select("-password");
+    const user = await User.findById(id).select("-password").lean();;
 
     if (!user) {
       return res.status(404).json({
@@ -143,6 +181,8 @@ export const getUserById = async (req, res) => {
         message: "المستخدم غير موجود",
       });
     }
+    const ordersCount = await Order.countDocuments({trader : id})
+    user.ordersCount = ordersCount
     res.status(200).json({
       success: true,
       data: user,
@@ -180,7 +220,6 @@ export const getAllUsers = async (req, res) => {
     }
 
     const users = await User.find(query)
-      .select("-password") // إخفاء كلمة المرور تلقائيًا
       .sort({ createdAt: -1 });
 
     res.status(200).json({

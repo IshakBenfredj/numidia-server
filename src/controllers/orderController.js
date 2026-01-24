@@ -129,7 +129,7 @@ export const confirmOrder = async (req, res) => {
 
     order.status = "confirmed";
 
-    let debt = await Debt.findById({
+    let debt = await Debt.findOne({
       supplier: order.supplier,
       isPaid: false,
     });
@@ -156,6 +156,7 @@ export const confirmOrder = async (req, res) => {
       order,
     });
   } catch (error) {
+    console.log(error);
     res.status(500).json({
       success: false,
       message: error.message || "فشل تأكيد الطلب",
@@ -232,7 +233,7 @@ export const getOrderById = async (req, res) => {
     const { id } = req.params;
     const order = await Order.findById(id)
       .populate("trader", "name phone")
-      .populate("supplier", "name phone logo")
+      .populate("supplier")
       .populate("products.product", "name price images")
       .lean();
 
@@ -302,7 +303,13 @@ export const updateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const allowedStatuses = ["confirmed", "shipped", "delivered", "cancelled"];
+    const allowedStatuses = [
+      "confirmed",
+      "shipped",
+      "delivered",
+      "cancelled",
+      "retour",
+    ];
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -310,11 +317,7 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    const order = await Order.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true, runValidators: true },
-    );
+    const order = await Order.findById(id).populate("supplier");
 
     if (!order) {
       return res.status(404).json({
@@ -323,7 +326,33 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    if (status === "cancelled") {
+    if (
+      (status === "delivered" ||
+        status === "confirmed" ||
+        status === "shipped") &&
+      (order.status === "cancelled" ||
+        order.status === "retour" ||
+        order.status === "pending")
+    ) {
+      for (const item of order.products) {
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { quantity: -item.quantity },
+        });
+      }
+
+      const debt = await Debt.findById(order.debt);
+      if (debt) {
+        debt.totalAmount += order.totalAmount * order.supplier.commissionRate;
+        await debt.save();
+      }
+    }
+
+    if (
+      (status === "cancelled" || status === "retour") &&
+      (order.status === "confirmed" ||
+        order.status === "delivered" ||
+        order.status === "shipped")
+    ) {
       for (const item of order.products) {
         await Product.findByIdAndUpdate(item.product, {
           $inc: { quantity: item.quantity },
@@ -332,18 +361,24 @@ export const updateOrderStatus = async (req, res) => {
 
       const debt = await Debt.findById(order.debt);
       if (debt) {
-        debt.totalAmount -=
-          order.totalAmount * Number(order.supplier.commissionRate);
+        debt.totalAmount -= order.totalAmount * order.supplier.commissionRate;
         await debt.save();
       }
     }
 
+    const orderUpdated = await Order.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true, runValidators: true },
+    );
+
     res.status(200).json({
       success: true,
       message: `تم تغيير حالة الطلب إلى ${status}`,
-      order,
+      order : orderUpdated,
     });
   } catch (error) {
+    console.log(error);
     res.status(500).json({
       success: false,
       message: error.message || "فشل تحديث حالة الطلب",
