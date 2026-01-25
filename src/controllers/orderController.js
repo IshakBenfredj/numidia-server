@@ -1,6 +1,8 @@
 import Order from "../models/Order.js";
 import Debt from "../models/Debt.js";
 import Product from "../models/Product.js";
+import User from "../models/User.js";
+import mongoose from "mongoose";
 
 export const createOrder = async (req, res) => {
   try {
@@ -201,6 +203,65 @@ export const getTraderOrders = async (req, res) => {
       orders,
     });
   } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل جلب الطلبات",
+    });
+  }
+};
+
+export const getUserOrders = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "معرف المستخدم غير صالح",
+      });
+    }
+
+    // Find the user to know their role
+    const user = await User.findById(userId).select("role name phone");
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+      });
+    }
+
+    let query = {};
+
+    if (user.role === "trader") {
+      query.trader = userId;
+    } else if (user.role === "supplier") {
+      query.supplier = userId;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "هذا المستخدم ليس تاجر ولا مورد",
+      });
+    }
+
+    const orders = await Order.find(query)
+      .populate("trader", "name phone")
+      .populate("supplier", "name phone")
+      .populate("products.product", "name price images")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      orders,
+      user: {
+        id: user._id,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("خطأ في جلب طلبات المستخدم:", error);
     res.status(500).json({
       success: false,
       message: error.message || "فشل جلب الطلبات",

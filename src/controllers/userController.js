@@ -154,7 +154,7 @@ export const getSupplierById = async (req, res) => {
     const ordersCount = await Order.countDocuments({ supplier: id });
     const productsCount = await Product.countDocuments({ supplier: id });
 
-    supplier._doc.debts = debts.totalAmount;
+    supplier._doc.debts = debts ? debts.totalAmount : 0;
     supplier._doc.ordersCount = ordersCount;
     supplier._doc.productsCount = productsCount;
     res.status(200).json({

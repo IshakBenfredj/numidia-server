@@ -25,7 +25,6 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
       return res.status(200).json({
         success: true,
         data: null,
-        message: "لا يوجد دين حالي غير مدفوع لهذا المورد",
       });
     }
 

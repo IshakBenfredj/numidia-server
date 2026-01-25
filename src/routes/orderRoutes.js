@@ -8,6 +8,7 @@ import {
   getAllOrders,
   getOrderById,
   deleteOrder,
+  getUserOrders,
 } from "../controllers/orderController.js";
 
 import { protect, admin } from "../middlewares/authMiddleware.js";
@@ -24,10 +25,12 @@ router.get("/my-orders", protect, getTraderOrders);
 
 router.get("/all", protect, admin, getAllOrders);
 
+router.get("/user/:userId", protect, admin, getUserOrders);
+
 router.get("/:id", protect, getOrderById);
 
 router.put("/:id/status", protect, updateOrderStatus);
 
-router.delete("/:id", protect, deleteOrder); 
+router.delete("/:id", protect, deleteOrder);
 
 export default router;
