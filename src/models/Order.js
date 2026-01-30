@@ -72,4 +72,16 @@ const OrderSchema = new Schema(
   },
 );
 
+// Virtual field: reports (all reports linked to this order)
+OrderSchema.virtual("reports", {
+  ref: "Report",
+  localField: "_id",
+  foreignField: "order",
+  justOne: false, // array of reports
+});
+
+// Important: make virtuals appear in toJSON / toObject
+OrderSchema.set("toObject", { virtuals: true });
+OrderSchema.set("toJSON", { virtuals: true });
+
 export default model("Order", OrderSchema);
