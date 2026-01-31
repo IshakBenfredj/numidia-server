@@ -15,7 +15,7 @@ router.post("/supplier", protect, admin, createSupplierByAdmin);
 router.put("/supplier/:id", protect, admin, editSupplierByAdmin);
 router.get("/", protect, admin, getAllUsers);
 router.get("/supplier/:id", protect, admin, getSupplierById);
-router.get("/:id", protect, admin, getUserById);
+router.get("/:id", protect, getUserById);
 router.delete("/:id", protect, admin, deleteUser);
 
 export default router;

@@ -8,12 +8,12 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      const error = new Error("معرف المورد غير صالح");
-      error.statusCode = 400;
-      throw error;
+      return res.status(400).json({
+        success: false,
+        message: "معرف المورد غير صالح",
+      });
     }
 
-    // 1. Récupérer la dette courante non payée
     const debt = await Debt.findOne({
       supplier: id,
       isPaid: false,
@@ -28,6 +28,7 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
       });
     }
 
+    // Aggregate breakdown: delivered vs pending (confirmed/shipped)
     const commissionBreakdown = await Order.aggregate([
       {
         $match: {
@@ -38,9 +39,17 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
       {
         $project: {
           status: 1,
+          effectiveAmount: {
+            $subtract: ["$totalAmount", { $ifNull: ["$deductedRetour", 0] }],
+          },
+        },
+      },
+      {
+        $project: {
+          status: 1,
           commission: {
             $multiply: [
-              "$totalAmount",
+              "$effectiveAmount",
               { $ifNull: ["$supplier.commissionRate", 0.05] },
             ],
           },
@@ -55,29 +64,29 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
       },
     ]);
 
-    const stats = {
-      deliveredCommission: 0,
-      pendingCommission: 0,
-      deliveredCount: 0,
-      pendingCount: 0,
-    };
+    let deliveredCommission = 0;
+    let pendingCommission = 0;
+    let deliveredCount = 0;
+    let pendingCount = 0;
 
     commissionBreakdown.forEach((group) => {
+      const roundedCommission = Math.round(group.totalCommission || 0);
+
       if (group._id === "delivered") {
-        stats.deliveredCommission = group.totalCommission || 0;
-        stats.deliveredCount = group.count || 0;
+        deliveredCommission = roundedCommission;
+        deliveredCount = group.count || 0;
       } else if (["confirmed", "shipped"].includes(group._id)) {
-        stats.pendingCommission += group.totalCommission || 0;
-        stats.pendingCount += group.count || 0;
+        pendingCommission += roundedCommission;
+        pendingCount += group.count || 0;
       }
     });
 
-    const calculatedTotalCommission =
-      stats.deliveredCommission + stats.pendingCommission;
+    const calculatedTotalCommission = deliveredCommission + pendingCommission;
 
+    // Warning if mismatch (allow 1 دج tolerance for rounding)
     if (Math.abs(calculatedTotalCommission - debt.totalAmount) > 1) {
       console.warn(
-        `Incohérence dette ${debt._id} : total en DB = ${debt.totalAmount}, calculé = ${calculatedTotalCommission}`,
+        `Incohérence dette ${debt._id}: DB = ${debt.totalAmount}, calculé = ${calculatedTotalCommission}`
       );
     }
 
@@ -85,17 +94,16 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
       success: true,
       data: {
         ...debt,
-        deliveredCommission: Math.round(stats.deliveredCommission), 
-        pendingCommission: Math.round(stats.pendingCommission),
-        totalCommission: Math.round(calculatedTotalCommission),
-        deliveredOrdersCount: stats.deliveredCount,
-        pendingOrdersCount: stats.pendingCount,
+        deliveredCommission,
+        pendingCommission,
+        totalCommission: calculatedTotalCommission,
+        deliveredOrdersCount: deliveredCount,
+        pendingOrdersCount: pendingCount,
         deliveredPercentage:
           calculatedTotalCommission > 0
-            ? Math.round(
-                (stats.deliveredCommission / calculatedTotalCommission) * 100,
-              )
+            ? Math.round((deliveredCommission / calculatedTotalCommission) * 100)
             : 0,
+        effectiveTotalUsedForCommission: calculatedTotalCommission,
       },
     });
   } catch (error) {
@@ -109,14 +117,16 @@ export const getSupplierDebts = async (req, res, next) => {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      const error = new Error("معرف المورد غير صالح");
-      error.statusCode = 400;
-      throw error;
+      return res.status(400).json({
+        success: false,
+        message: "معرف المورد غير صالح",
+      });
     }
 
     const debts = await Debt.find({ supplier: id })
       .sort({ createdAt: -1 })
-      .populate("supplier", "name businessName phone");
+      .populate("supplier", "name businessName phone commissionRate")
+      .lean();
 
     res.status(200).json({
       success: true,
@@ -128,7 +138,7 @@ export const getSupplierDebts = async (req, res, next) => {
   }
 };
 
-// GET /api/debts/current
+// GET /api/debts/current (admin)
 export const getCurrentDebts = async (req, res, next) => {
   try {
     const debts = await Debt.find({ isPaid: false })
@@ -158,9 +168,17 @@ export const getCurrentDebts = async (req, res, next) => {
           },
           {
             $project: {
+              effectiveAmount: {
+                $subtract: ["$totalAmount", { $ifNull: ["$deductedRetour", 0] }],
+              },
+              status: 1,
+            },
+          },
+          {
+            $project: {
               commission: {
                 $multiply: [
-                  "$totalAmount",
+                  "$effectiveAmount",
                   { $ifNull: ["$supplier.commissionRate", 0.05] },
                 ],
               },
@@ -182,11 +200,12 @@ export const getCurrentDebts = async (req, res, next) => {
         let pendingCount = 0;
 
         breakdown.forEach((g) => {
+          const rounded = Math.round(g.totalCommission || 0);
           if (g._id === "delivered") {
-            deliveredCommission = Math.round(g.totalCommission || 0);
+            deliveredCommission = rounded;
             deliveredCount = g.count || 0;
           } else if (["confirmed", "shipped"].includes(g._id)) {
-            pendingCommission += Math.round(g.totalCommission || 0);
+            pendingCommission += rounded;
             pendingCount += g.count || 0;
           }
         });
@@ -202,7 +221,6 @@ export const getCurrentDebts = async (req, res, next) => {
       })
     );
 
-    // Global totals
     const totalUnpaid = enrichedDebts.reduce((sum, d) => sum + d.totalAmount, 0);
     const totalDelivered = enrichedDebts.reduce((sum, d) => sum + d.deliveredCommission, 0);
     const totalPending = enrichedDebts.reduce((sum, d) => sum + d.pendingCommission, 0);
@@ -219,44 +237,36 @@ export const getCurrentDebts = async (req, res, next) => {
     next(error);
   }
 };
-// export const getCurrentDebts = async (req, res, next) => {
-//   try {
-//     const debts = await Debt.find({ isPaid: false })
-//       .populate("supplier", "name businessName phone commissionRate")
-//       .sort({ createdAt: -1 });
 
-//     const totalUnpaid = debts.reduce((sum, debt) => sum + debt.totalAmount, 0);
-
-//     res.status(200).json({
-//       success: true,
-//       count: debts.length,
-//       totalUnpaidAmount: totalUnpaid,
-//       data: debts,
-//     });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
-
-// POST /api/debts/:debtId/pay
+// POST /api/debts/:debtId/pay-delivered
 export const payDebtDelivered = async (req, res, next) => {
   const { debtId } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(debtId)) {
-    return next(createError(400, "معرف الدين غير صالح"));
+    return res.status(400).json({
+      success: false,
+      message: "معرف الدين غير صالح",
+    });
   }
 
   try {
     const oldDebt = await Debt.findById(debtId);
     if (!oldDebt) {
-      return next(createError(404, "الدين غير موجود"));
-    }
-    if (oldDebt.isPaid) {
-      return next(createError(400, "هذا الدين تم تسديده مسبقًا"));
+      return res.status(404).json({
+        success: false,
+        message: "الدين غير موجود",
+      });
     }
 
-    // Calculate pending commissions (not delivered but confirmed/shipped)
-    const pendingCommission = await Order.aggregate([
+    if (oldDebt.isPaid) {
+      return res.status(400).json({
+        success: false,
+        message: "هذا الدين تم تسديده مسبقًا",
+      });
+    }
+
+    // Get only pending (confirmed + shipped) commissions
+    const pendingBreakdown = await Order.aggregate([
       {
         $match: {
           debt: oldDebt._id,
@@ -265,57 +275,70 @@ export const payDebtDelivered = async (req, res, next) => {
       },
       {
         $project: {
+          effectiveAmount: {
+            $subtract: ["$totalAmount", { $ifNull: ["$deductedRetour", 0] }],
+          },
+          status: 1,
+        },
+      },
+      {
+        $project: {
           commission: {
             $multiply: [
-              "$totalAmount",
+              "$effectiveAmount",
               { $ifNull: ["$supplier.commissionRate", 0.05] },
             ],
           },
         },
       },
-      { $group: { _id: null, total: { $sum: "$commission" } } },
+      {
+        $group: {
+          _id: null,
+          totalPendingCommission: { $sum: "$commission" },
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
-    const movedAmount = Math.round(pendingCommission[0]?.total || 0);
+    const movedAmount = Math.round(pendingBreakdown[0]?.totalPendingCommission || 0);
+    const movedOrdersCount = pendingBreakdown[0]?.count || 0;
 
-    // Mark old debt as paid
+    // Mark old debt as paid (only keep delivered part)
+    const deliveredCommission = Math.round(oldDebt.totalAmount - movedAmount);
+    oldDebt.totalAmount = deliveredCommission;
     oldDebt.isPaid = true;
     oldDebt.paidAt = new Date();
+    await oldDebt.save();
 
-    // Subtract moved amount from old debt
-    oldDebt.totalAmount = Math.max(0, oldDebt.totalAmount - movedAmount);
+    // Create new debt for pending commissions
+    let newDebt = null;
+    if (movedAmount > 0) {
+      newDebt = await Debt.create({
+        supplier: oldDebt.supplier,
+        totalAmount: movedAmount,
+        isPaid: false,
+      });
+    }
 
-    // Find and update pending orders
+    // Move pending orders to new debt
     const pendingOrders = await Order.find({
       debt: oldDebt._id,
       status: { $in: ["confirmed", "shipped"] },
     });
 
-    // Create new debt
-    const newDebt = new Debt({
-      supplier: oldDebt.supplier,
-      totalAmount: movedAmount,
-      isPaid: false,
-    });
-
-    await newDebt.save();
-
-    // Update orders to new debt
     for (const order of pendingOrders) {
-      order.debt = newDebt._id;
+      order.debt = newDebt?._id || null;
       await order.save();
     }
 
-    // Save old debt changes
-    await oldDebt.save();
-
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
-      message: "تم تسديد الدين بنجاح ونقل الطلبات المعلقة إلى دين جديد",
+      message: "تم تسديد الجزء المُسلّم ونقل الطلبات المعلقة إلى دين جديد",
       oldDebt,
       newDebt,
       movedAmount,
-      movedOrdersCount: pendingOrders.length,
+      movedOrdersCount,
+      remainingDeliveredCommission: deliveredCommission,
     });
   } catch (err) {
     next(err);

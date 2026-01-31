@@ -37,6 +37,11 @@ const OrderSchema = new Schema(
       required: [true, "المبلغ الإجمالي مطلوب"],
       min: [0, "لا يمكن أن يكون المبلغ الإجمالي سالبًا"],
     },
+    deductedRetour: {
+      type: Number,
+      default: 0,
+      min: [0, "لا يمكن أن يكون مبلغ الخصم سالبًا"],
+    },
     status: {
       type: String,
       enum: ["pending", "confirmed", "shipped", "delivered", "cancelled", "retour"],
@@ -66,6 +71,12 @@ const OrderSchema = new Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Debt",
     },
+    linkedReports: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Report",
+      },
+    ],
   },
   {
     timestamps: true,

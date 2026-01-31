@@ -40,13 +40,18 @@ const ReportSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "processed"],
+      enum: ["pending", "approved", "rejected", "processed", "delivered"],
       default: "pending",
     },
     notes: {
       type: String,
       trim: true,
       maxlength: [500, "الملاحظات لا تتجاوز 500 حرف"],
+    },
+    linkedOrder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
     },
   },
   {
