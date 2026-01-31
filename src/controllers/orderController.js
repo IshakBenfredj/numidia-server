@@ -326,8 +326,15 @@ export const getOrderById = async (req, res) => {
     const { id } = req.params;
     const order = await Order.findById(id)
       .populate("trader", "name phone")
-      .populate("supplier", "name phone")
+      .populate("supplier")
       .populate("products.product", "name price images")
+      .populate({
+        path: "linkedReports",
+        populate: [
+          { path: "trader", select: "name phone" },
+          { path: "reportedItems.product", select: "name price images" },
+        ],
+      })
       .populate({
         path: "reports",
         populate: [
