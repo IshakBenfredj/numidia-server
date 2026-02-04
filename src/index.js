@@ -10,6 +10,7 @@ import productRoutes from "./routes/productRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import debtRoutes from "./routes/debtRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
+import adsRoutes from "./routes/adsRoutes.js";
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/debts", debtRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/ads", adsRoutes);
 
 // MongoDB Connection
 mongoose
