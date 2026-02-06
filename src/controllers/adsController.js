@@ -63,7 +63,6 @@ export const getActiveAds = async (req, res) => {
   try {
     const ads = await Ads.find({ isActive: true })
       .sort({ createdAt: -1 })
-      .select("-__v")
       .lean();
 
     res.status(200).json({
