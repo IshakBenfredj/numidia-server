@@ -12,6 +12,7 @@ import debtRoutes from "./routes/debtRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import adsRoutes from "./routes/adsRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
+import job from "./cron.js";
 
 dotenv.config();
 
@@ -23,6 +24,8 @@ app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json({ limit: "500mb" })); 
 app.use(express.urlencoded({ extended: true, limit: "500mb" }));
+job.start();
+
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);

@@ -111,7 +111,7 @@ export const createOrder = async (req, res) => {
       city,
       deliveryType,
       deliveryAddress: deliveryAddress || "",
-      deliveryPrice,
+      deliveryPrice : 0,
       linkedReports,
     });
 
