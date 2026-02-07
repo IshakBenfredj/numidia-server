@@ -103,3 +103,33 @@ export const getMe = async (req, res) => {
     sendResponse(res, 500, "حدث خطأ في الخادم، يرجى المحاولة لاحقًا");
   }
 };
+
+// POST /api/auth/push-token
+// export const savePushToken = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+//     const { expoPushToken } = req.body;
+
+//     if (!expoPushToken) {
+//       return res.status(400).json({
+//         status: "fail",
+//         message: "Expo push token is required",
+//       });
+//     }
+
+//     await User.findByIdAndUpdate(userId, {
+//       $addToSet: { tokens: expoPushToken },
+//     });
+
+//     res.json({
+//       status: "success",
+//       message: "Push token saved",
+//     });
+//   } catch (error) {
+//     console.error("Save Push Token Error:", error);
+//     res.status(500).json({
+//       status: "fail",
+//       message: "Failed to save push token",
+//     });
+//   }
+// };

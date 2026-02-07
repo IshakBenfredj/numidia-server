@@ -80,12 +80,16 @@ const UserSchema = new Schema(
         return this.role === "supplier";
       },
     },
+    tokens: {
+      type: [String],
+      default: [],
+    },
   },
   {
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  }
+  },
 );
 
 UserSchema.pre("save", async function () {
