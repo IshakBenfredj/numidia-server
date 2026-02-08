@@ -14,6 +14,11 @@ const ReportSchema = new Schema(
       ref: "User",
       required: [true, "التاجر مطلوب"],
     },
+    supplier: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "المورد مطلوب"],
+    },
     reportedItems: [
       {
         product: {

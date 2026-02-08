@@ -70,6 +70,7 @@ export const createReport = async (req, res, next) => {
 
     const report = await Report.create({
       order: orderId,
+      supplier: order.supplier,
       trader: traderId,
       reportedItems,
       notes: notes || "",

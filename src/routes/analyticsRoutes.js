@@ -4,7 +4,7 @@ import {
   getPendingOrdersCount,
   getPendingReportsCount,
   getNewUsersToday,
-  getAdminDashboardAnalyticsTabs,
+  getDashboardAnalyticsTabs,
 } from "../controllers/analyticsController.js";
 
 import { protect, admin } from "../middlewares/authMiddleware.js";
@@ -13,7 +13,7 @@ const router = express.Router();
 
 // Main dashboard endpoint (recommended - one call gets everything)
 router.get("/dashboard", protect, admin, getAdminDashboardAnalytics);
-router.get("/tabs", protect, admin, getAdminDashboardAnalyticsTabs);
+router.get("/tabs", protect, admin, getDashboardAnalyticsTabs);
 
 // Optional granular endpoints
 router.get("/pending-orders", protect, admin, getPendingOrdersCount);

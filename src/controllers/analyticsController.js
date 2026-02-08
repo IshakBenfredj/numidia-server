@@ -79,18 +79,37 @@ export const getAdminDashboardAnalytics = async (req, res) => {
   }
 };
 
-export const getAdminDashboardAnalyticsTabs = async (req, res) => {
+export const getDashboardAnalyticsTabs = async (req, res) => {
   try {
+    const role = req.user.role;
+    const userId = req.user._id;
+
+    let queryOrder = {};
+    let queryReport = {};
+
+    if (role === "admin") {
+      queryOrder = { status: "pending" };
+      queryReport = { status: "pending" };
+    } else if (role === "supplier") {
+      queryOrder = { status: "confirmed", supplier: userId };
+      queryReport = { status: "approved", supplier: userId };
+    }
+    // else → leave empty → will count 0 (or you can throw 403)
+
     const today = getTodayRange();
 
     const [pendingOrdersCount, pendingReportsCount, newTradersToday] =
       await Promise.all([
-        Order.countDocuments({ status: "pending" }),
-        Report.countDocuments({ status: "pending" }),
-        User.countDocuments({
-          role: "trader",
-          createdAt: { $gte: today.start, $lte: today.end },
-        }),
+        Order.countDocuments(queryOrder),
+        Report.countDocuments(queryReport),
+        // Only admins probably care about new traders
+        // You can also condition this:
+        role === "admin"
+          ? User.countDocuments({
+              role: "trader",
+              createdAt: { $gte: today.start, $lte: today.end },
+            })
+          : 0,
       ]);
 
     res.status(200).json({
@@ -110,8 +129,6 @@ export const getAdminDashboardAnalyticsTabs = async (req, res) => {
     });
   }
 };
-
-// Optional: More granular endpoints (can be called separately if needed)
 
 export const getPendingOrdersCount = async (req, res) => {
   try {
