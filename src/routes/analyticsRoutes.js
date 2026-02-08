@@ -13,7 +13,7 @@ const router = express.Router();
 
 // Main dashboard endpoint (recommended - one call gets everything)
 router.get("/dashboard", protect, admin, getAdminDashboardAnalytics);
-router.get("/tabs", protect, admin, getDashboardAnalyticsTabs);
+router.get("/tabs", protect, getDashboardAnalyticsTabs);
 
 // Optional granular endpoints
 router.get("/pending-orders", protect, admin, getPendingOrdersCount);
