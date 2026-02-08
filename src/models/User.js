@@ -17,7 +17,6 @@ const UserSchema = new Schema(
       minlength: [6, "كلمة المرور يجب أن تكون 6 أحرف على الأقل"],
       select: false,
     },
-
     name: {
       type: String,
       required: true,

@@ -16,13 +16,14 @@ export const createSupplierByAdmin = async (req, res) => {
       logo,
       businessName,
       commissionRate = 0.05,
-      type
+      type,
     } = req.body;
 
     if (!name || !phone || !password || !address || !businessName) {
       return res.status(400).json({
         success: false,
-        message: "جميع الحقول مطلوبة: الاسم، الهاتف، العنوان، اسم النشاط، كلمة المرور",
+        message:
+          "جميع الحقول مطلوبة: الاسم، الهاتف، العنوان، اسم النشاط، كلمة المرور",
       });
     }
 
@@ -79,7 +80,7 @@ export const editSupplierByAdmin = async (req, res) => {
       businessName,
       commissionRate,
       isActive,
-      type
+      type,
     } = req.body;
 
     const supplier = await User.findById(id);
@@ -112,7 +113,9 @@ export const editSupplierByAdmin = async (req, res) => {
     supplier.address = address ?? supplier.address;
     supplier.businessName = businessName ?? supplier.businessName;
     supplier.commissionRate =
-      commissionRate !== undefined ? Number(commissionRate) : supplier.commissionRate;
+      commissionRate !== undefined
+        ? Number(commissionRate)
+        : supplier.commissionRate;
     supplier.isActive = isActive !== undefined ? isActive : supplier.isActive;
     supplier.type = type ?? supplier.type;
 
@@ -173,7 +176,7 @@ export const getSupplierById = async (req, res) => {
 export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select("-password").lean();;
+    const user = await User.findById(id).select("-password").lean();
 
     if (!user) {
       return res.status(404).json({
@@ -181,8 +184,8 @@ export const getUserById = async (req, res) => {
         message: "المستخدم غير موجود",
       });
     }
-    const ordersCount = await Order.countDocuments({trader : id})
-    user.ordersCount = ordersCount
+    const ordersCount = await Order.countDocuments({ trader: id });
+    user.ordersCount = ordersCount;
     res.status(200).json({
       success: true,
       data: user,
@@ -219,8 +222,44 @@ export const getAllUsers = async (req, res) => {
       query.isActive = isActive === "true";
     }
 
-    const users = await User.find(query)
-      .sort({ createdAt: -1 });
+    // Fetch users (sorted by newest first)
+    let users = await User.find(query).sort({ createdAt: -1 }).lean(); // Very important: .lean() makes them plain JS objects so we can modify them
+
+    // If there are suppliers in the list, calculate their unpaid debts
+    const supplierIds = users
+      .filter((u) => u.role === "supplier")
+      .map((u) => u._id);
+
+    let debtMap = {};
+    if (supplierIds.length > 0) {
+      const debts = await Debt.aggregate([
+        { $match: { supplier: { $in: supplierIds }, isPaid: false } },
+        {
+          $group: {
+            _id: "$supplier",
+            totalDebt: { $sum: "$totalAmount" },
+          },
+        },
+      ]);
+
+      // Convert to easy lookup map: { supplierId: totalDebt }
+      debtMap = debts.reduce((acc, curr) => {
+        acc[curr._id.toString()] = curr.totalDebt;
+        return acc;
+      }, {});
+    }
+
+    // Add debts field only to suppliers
+    users = users.map((user) => {
+      if (user.role === "supplier") {
+        const totalDebt = debtMap[user._id.toString()] || 0;
+        return {
+          ...user,
+          debts: totalDebt, // This is the new field you wanted
+        };
+      }
+      return user;
+    });
 
     res.status(200).json({
       success: true,
@@ -232,6 +271,69 @@ export const getAllUsers = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "حدث خطأ في جلب المستخدمين",
+    });
+  }
+};
+
+export const getUsersByType = async (req, res) => {
+  try {
+    const { type } = req.params;
+
+    if (!["accessoire", "spart_parts"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "نوع غير صالح. يجب أن يكون accessoire أو spare_parts",
+      });
+    }
+
+    // Step 1: Find active suppliers of this type
+    const suppliers = await User.find({
+      role: "supplier",
+      type,
+      isActive: true,
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Step 2: Get product count for each supplier (efficient with aggregation)
+    const supplierIds = suppliers.map((s) => s._id);
+
+    const productCounts = await Product.aggregate([
+      {
+        $match: {
+          supplier: { $in: supplierIds },
+          isActive: true, // optional: only count active products
+        },
+      },
+      {
+        $group: {
+          _id: "$supplier",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Create a quick lookup map: supplierId → count
+    const countMap = productCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.count;
+      return acc;
+    }, {});
+
+    // Step 3: Attach productCount to each supplier
+    const enrichedSuppliers = suppliers.map((supplier) => ({
+      ...supplier,
+      productCount: countMap[supplier._id.toString()] || 0,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: enrichedSuppliers,
+    });
+  } catch (error) {
+    console.error("Get Suppliers By Type Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ في جلب الموردين",
     });
   }
 };

@@ -44,6 +44,7 @@ export const createProduct = async (req, res) => {
       product,
     });
   } catch (error) {
+    console.log(error)
     res.status(400).json({
       success: false,
       message: error.message || "فشل إنشاء المنتج",

@@ -6,12 +6,14 @@ import {
   deleteUser,
   getUserById,
   getSupplierById,
+  getUsersByType,
 } from "../controllers/userController.js";
 import { admin, protect } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
 router.post("/supplier", protect, admin, createSupplierByAdmin);
+router.get("/supplier/type/:type", getUsersByType);
 router.put("/supplier/:id", protect, admin, editSupplierByAdmin);
 router.get("/", protect, admin, getAllUsers);
 router.get("/supplier/:id", protect, admin, getSupplierById);

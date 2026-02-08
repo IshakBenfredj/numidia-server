@@ -8,7 +8,6 @@ const ProductSchema = new Schema(
     name: {
       type: String,
       required: [true, "اسم المنتج مطلوب"],
-      unique: true,
       trim: true,
       minlength: [2, "الاسم قصير جداً"],
       maxlength: [100, "الاسم طويل جداً"],
