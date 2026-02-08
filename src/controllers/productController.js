@@ -80,19 +80,17 @@ export const updateProduct = async (req, res) => {
     }
 
     if (oldPrice < price) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "السعر قبل التخفيض يجب أن يكون أكبر من السعر الحالي",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "السعر قبل التخفيض يجب أن يكون أكبر من السعر الحالي",
+      });
     }
 
     const currentImages = product.images || [];
     let finalImageUrls = [...currentImages];
 
     const newBase64Images = images.filter((img) =>
-      img.startsWith("data:image/")
+      img.startsWith("data:image/"),
     );
 
     console.log("New base64 images to upload:", newBase64Images.length);
@@ -104,17 +102,19 @@ export const updateProduct = async (req, res) => {
     }
 
     const imagesToDelete = currentImages.filter(
-      (oldUrl) => !images.includes(oldUrl)
+      (oldUrl) => !images.includes(oldUrl),
     );
 
     if (imagesToDelete.length > 0) {
       const publicIds = imagesToDelete.map(getPublicIdFromUrl);
 
-       console.log("Deleting images with public IDs:", publicIds);
+      console.log("Deleting images with public IDs:", publicIds);
 
       if (publicIds.length > 0) {
         await deleteMultipleImages(publicIds);
-        finalImageUrls = finalImageUrls.filter((url) => !imagesToDelete.includes(url));
+        finalImageUrls = finalImageUrls.filter(
+          (url) => !imagesToDelete.includes(url),
+        );
       }
     }
 
@@ -136,7 +136,7 @@ export const updateProduct = async (req, res) => {
           description !== undefined ? description : product.description,
         images: finalImageUrls.slice(0, 5),
       },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     res.status(200).json({
@@ -198,7 +198,25 @@ export const getMyProducts = async (req, res) => {
 
 export const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find().sort({ createdAt: -1 }).populate("supplier").lean();
+    const products = await Product.find()
+      .sort({ createdAt: -1 })
+      .populate("supplier")
+      .lean();
+
+    res.status(200).json({ success: true, products });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getProductsBySupplier = async (req, res) => {
+  try {
+    const products = await Product.find({
+      supplier: req.params.id,
+    })
+      .sort({ createdAt: -1 })
+      .populate("supplier")
+      .lean();
 
     res.status(200).json({ success: true, products });
   } catch (error) {
