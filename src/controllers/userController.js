@@ -20,7 +20,7 @@ export const createSupplierByAdmin = async (req, res) => {
     } = req.body;
 
     if (!name || !phone || !password || !address || !businessName) {
-      return res.status(400).json({
+      return res.json({
         success: false,
         message:
           "جميع الحقول مطلوبة: الاسم، الهاتف، العنوان، اسم النشاط، كلمة المرور",
@@ -145,7 +145,11 @@ export const editSupplierByAdmin = async (req, res) => {
 export const getSupplierById = async (req, res) => {
   try {
     const { id } = req.params;
-    const supplier = await User.findById(id);
+
+    // Fetch supplier + lean() to get plain JS object
+    const supplier = await User.findById(id)
+      .select("-password -tokens") // exclude sensitive fields
+      .lean();
 
     if (!supplier || supplier.role !== "supplier") {
       return res.status(404).json({
@@ -153,16 +157,65 @@ export const getSupplierById = async (req, res) => {
         message: "المورد غير موجود",
       });
     }
-    const debts = await Debt.findOne({ supplier: id, isPaid: false });
-    const ordersCount = await Order.countDocuments({ supplier: id });
-    const productsCount = await Product.countDocuments({ supplier: id });
 
-    supplier._doc.debts = debts ? debts.totalAmount : 0;
-    supplier._doc.ordersCount = ordersCount;
-    supplier._doc.productsCount = productsCount;
+    // Calculate delivered commission (only delivered orders)
+    const deliveredCommissionResult = await Order.aggregate([
+      {
+        $match: {
+          supplier: supplier._id,
+          status: "delivered",
+        },
+      },
+      {
+        $project: {
+          effectiveAmount: {
+            $subtract: ["$totalAmount", { $ifNull: ["$deductedRetour", 0] }],
+          },
+        },
+      },
+      {
+        $project: {
+          commission: {
+            $multiply: [
+              "$effectiveAmount",
+              { $ifNull: [supplier.commissionRate, 0.05] },
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$commission" },
+        },
+      },
+    ]);
+
+    const deliveredCommission = Math.round(
+      deliveredCommissionResult[0]?.total || 0
+    );
+
+    // Other counts (using lean-compatible countDocuments)
+    const debtsResult = await Debt.findOne(
+      { supplier: supplier._id, isPaid: false },
+      "totalAmount"
+    ).lean();
+
+    const ordersCount = await Order.countDocuments({ supplier: supplier._id });
+    const productsCount = await Product.countDocuments({ supplier: supplier._id });
+
+    // Enrich the plain supplier object
+    const enrichedSupplier = {
+      ...supplier,
+      deliveredCommission,              // ← the field you want (only delivered)
+      currentDebt: debtsResult?.totalAmount || 0,
+      ordersCount,
+      productsCount,
+    };
+
     res.status(200).json({
       success: true,
-      data: supplier,
+      data: enrichedSupplier,
     });
   } catch (error) {
     console.error("Get Supplier By ID Error:", error);
@@ -222,40 +275,68 @@ export const getAllUsers = async (req, res) => {
       query.isActive = isActive === "true";
     }
 
-    // Fetch users (sorted by newest first)
-    let users = await User.find(query).sort({ createdAt: -1 }).lean(); // Very important: .lean() makes them plain JS objects so we can modify them
+    // Fetch users (sorted by newest first) + lean() to allow easy modification
+    let users = await User.find(query)
+      .sort({ createdAt: -1 })
+      .lean();
 
-    // If there are suppliers in the list, calculate their unpaid debts
+    // Extract supplier IDs
     const supplierIds = users
       .filter((u) => u.role === "supplier")
       .map((u) => u._id);
 
-    let debtMap = {};
+    let commissionMap = {};
+
+    // If there are suppliers → calculate delivered commission only
     if (supplierIds.length > 0) {
-      const debts = await Debt.aggregate([
-        { $match: { supplier: { $in: supplierIds }, isPaid: false } },
+      const commissions = await Order.aggregate([
+        {
+          $match: {
+            supplier: { $in: supplierIds },
+            status: "delivered", // ← only delivered orders
+          },
+        },
+        {
+          $project: {
+            supplier: 1,
+            effectiveAmount: {
+              $subtract: ["$totalAmount", { $ifNull: ["$deductedRetour", 0] }],
+            },
+          },
+        },
+        {
+          $project: {
+            supplier: 1,
+            commission: {
+              $multiply: [
+                "$effectiveAmount",
+                { $ifNull: ["$supplier.commissionRate", 0.05] },
+              ],
+            },
+          },
+        },
         {
           $group: {
             _id: "$supplier",
-            totalDebt: { $sum: "$totalAmount" },
+            deliveredCommission: { $sum: "$commission" },
           },
         },
       ]);
 
-      // Convert to easy lookup map: { supplierId: totalDebt }
-      debtMap = debts.reduce((acc, curr) => {
-        acc[curr._id.toString()] = curr.totalDebt;
+      // Build map: supplierId → deliveredCommission (rounded)
+      commissionMap = commissions.reduce((acc, curr) => {
+        acc[curr._id.toString()] = Math.round(curr.deliveredCommission || 0);
         return acc;
       }, {});
     }
 
-    // Add debts field only to suppliers
+    // Enrich suppliers with deliveredCommission field
     users = users.map((user) => {
       if (user.role === "supplier") {
-        const totalDebt = debtMap[user._id.toString()] || 0;
+        const deliveredCommission = commissionMap[user._id.toString()] || 0;
         return {
           ...user,
-          debts: totalDebt, // This is the new field you wanted
+          deliveredCommission, // ← exactly what you asked for
         };
       }
       return user;
@@ -280,7 +361,7 @@ export const getUsersByType = async (req, res) => {
     const { type } = req.params;
 
     if (!["accessoire", "spart_parts"].includes(type)) {
-      return res.status(400).json({
+      return res.json({
         success: false,
         message: "نوع غير صالح. يجب أن يكون accessoire أو spare_parts",
       });
@@ -369,6 +450,138 @@ export const deleteUser = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "حدث خطأ في حذف المستخدم",
+    });
+  }
+};
+
+// PUT /api/users/me (trader updates own profile)
+export const updateTraderProfile = async (req, res) => {
+  try {
+    const userId = req.user._id; // from protect middleware
+    const { name, phone, address, oldPassword, newPassword } = req.body;
+
+    // Fetch current user
+    const trader = await User.findById(userId);
+    if (!trader || trader.role !== "trader") {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح لك بتعديل هذا الحساب",
+      });
+    }
+
+    // Phone uniqueness check
+    if (phone && phone !== trader.phone) {
+      const existing = await User.findOne({ phone });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: "رقم الهاتف مسجل لمستخدم آخر",
+        });
+      }
+    }
+
+    // Update allowed fields
+    trader.name = name ?? trader.name;
+    trader.phone = phone ?? trader.phone;
+    trader.address = address ?? trader.address;
+
+    // Password change (requires old password)
+    if (newPassword) {
+      if (!oldPassword) {
+        return res.json({
+          success: false,
+          message: "كلمة المرور القديمة مطلوبة للتغيير",
+        });
+      }
+
+      const isMatch = await trader.comparePassword(oldPassword);
+      if (!isMatch) {
+        return res.json({
+          success: false,
+          message: "كلمة المرور القديمة غير صحيحة",
+        });
+      }
+
+      if (newPassword.length < 6) {
+        return res.json({
+          success: false,
+          message: "كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل",
+        });
+      }
+
+      trader.password = await bcrypt.hash(newPassword, 12);
+    }
+
+    await trader.save();
+
+    // Return updated user without password
+    const { password: _, ...updatedUser } = trader.toObject();
+
+    res.status(200).json({
+      success: true,
+      message: "تم تحديث الملف الشخصي بنجاح",
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("Update Trader Profile Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تحديث الملف الشخصي",
+    });
+  }
+};
+
+// PUT /api/users/me/password (change password only)
+export const changeTraderPassword = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { oldPassword, newPassword } = req.body;
+
+    const user = await User.findById(userId).select('+password');
+    console.log('!user',!user)
+    console.log('user.role',user.role)
+    console.log(!user || user.role !== "trader")
+    if (!user || user.role !== "trader") {
+      return res.status(500).json({
+        success: false,
+        message: "غير مصرح لك بتغيير كلمة المرور",
+      });
+    }
+
+    if (!oldPassword || !newPassword) {
+      return res.status(500).json({
+        success: false,
+        message: "كلمة المرور القديمة والجديدة مطلوبة",
+      });
+    }
+
+    const isMatch = await user.comparePassword(oldPassword);
+    if (!isMatch) {
+      return res.status(500).json({
+        success: false,
+        message: "كلمة المرور القديمة غير صحيحة",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(500).json({
+        success: false,
+        message: "كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل",
+      });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "تم تغيير كلمة المرور بنجاح",
+    });
+  } catch (error) {
+    console.error("Change Password Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تغيير كلمة المرور",
     });
   }
 };
