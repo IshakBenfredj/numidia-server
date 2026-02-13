@@ -7,21 +7,19 @@ const UserSchema = new Schema(
   {
     phone: {
       type: String,
-      required: [true, "رقم الهاتف مطلوب"],
+      required: true,
       unique: true,
       trim: true,
     },
     password: {
       type: String,
-      required: [true, "كلمة المرور مطلوبة"],
-      minlength: [6, "كلمة المرور يجب أن تكون 6 أحرف على الأقل"],
+      required: true,
       select: false,
     },
     name: {
       type: String,
       required: true,
       trim: true,
-      maxlength: [100, "الاسم لا يمكن أن يتجاوز 100 حرف"],
     },
     address: {
       type: String,
@@ -45,15 +43,9 @@ const UserSchema = new Schema(
     businessName: {
       type: String,
       trim: true,
-      required: function () {
-        return this.role === "supplier";
-      },
-      maxlength: [150, "اسم النشاط التجاري لا يمكن أن يتجاوز 150 حرف"],
     },
     commissionRate: {
       type: Number,
-      min: [0, "نسبة العمولة لا يمكن أن تكون سالبة"],
-      max: [1, "نسبة العمولة لا يمكن أن تتجاوز 100%"],
       default: 0.05,
       required: function () {
         return this.role === "supplier";
@@ -66,7 +58,6 @@ const UserSchema = new Schema(
         values: ["trader", "supplier", "admin"],
         message: "الدور يجب أن يكون trader أو supplier أو admin",
       },
-      required: [true, "الدور مطلوب"],
       default: "trader",
     },
     type: {

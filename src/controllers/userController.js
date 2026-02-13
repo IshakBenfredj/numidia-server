@@ -4,7 +4,6 @@ import { deleteImage, uploadImageFromBase64 } from "../utils/cloudinary.js";
 import Debt from "../models/Debt.js";
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
-
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
   try {
@@ -19,48 +18,90 @@ export const createSupplierByAdmin = async (req, res) => {
       type,
     } = req.body;
 
-    if (!name || !phone || !password || !address || !businessName) {
-      return res.json({
+    if (!name?.trim() || !phone?.trim() || !password || !address?.trim()) {
+      return res.status(400).json({
         success: false,
         message:
-          "جميع الحقول مطلوبة: الاسم، الهاتف، العنوان، اسم النشاط، كلمة المرور",
+          "الحقول التالية مطلوبة: الاسم، رقم الهاتف، كلمة المرور، العنوان ",
       });
     }
 
-    const existingUser = await User.findOne({ phone });
-    if (existingUser) {
+    if (!type || !["accessoire", "spart_parts"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "نوع المورد مطلوب ويجب أن يكون: accessoire أو spart_parts",
+      });
+    }
+
+    const cleanPhone = phone.trim().replace(/[^\d+]/g, ""); 
+
+    if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل",
+      });
+    }
+
+    if (
+      Number.isNaN(Number(commissionRate)) ||
+      commissionRate < 0 ||
+      commissionRate > 1
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "نسبة العمولة يجب أن تكون رقمًا بين 0 و 1",
+      });
+    }
+
+    // ─── Business logic checks ───────────────────────────────
+    const existing = await User.findOne({ phone: cleanPhone });
+    if (existing) {
       return res.status(409).json({
         success: false,
         message: "رقم الهاتف مسجل مسبقًا",
       });
     }
 
-    const logoUrl = await uploadImageFromBase64(logo);
+    // Handle logo upload (only if provided)
+    let logoUrl = null;
+    if (logo && typeof logo === "string" && logo.startsWith("data:image")) {
+      const uploadResult = await uploadImageFromBase64(logo);
+      logoUrl = uploadResult?.url || null;
+    }
 
+    // ─── Create ──────────────────────────────────────────────
     const supplier = await User.create({
-      name,
-      phone,
-      address,
-      password,
+      name: name.trim(),
+      phone: cleanPhone,
+      password, // will be hashed in pre-save
+      address: address.trim(),
       role: "supplier",
-      logo: logoUrl.url || null,
-      businessName,
-      type,
+      logo: logoUrl,
+      businessName: businessName.trim(),
       commissionRate: Number(commissionRate),
+      type,
       isActive: true,
     });
 
-    // إخفاء كلمة المرور من الاستجابة
-    const { password: _, ...supplierWithoutPassword } = supplier.toObject();
+    // Remove password from response
+    const { password: _, ...safeSupplier } = supplier.toObject();
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "تم إنشاء حساب المورد بنجاح",
-      data: supplierWithoutPassword,
+      data: safeSupplier,
     });
   } catch (error) {
     console.error("Create Supplier Error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "حدث خطأ في الخادم، يرجى المحاولة لاحقًا",
     });
@@ -192,22 +233,24 @@ export const getSupplierById = async (req, res) => {
     ]);
 
     const deliveredCommission = Math.round(
-      deliveredCommissionResult[0]?.total || 0
+      deliveredCommissionResult[0]?.total || 0,
     );
 
     // Other counts (using lean-compatible countDocuments)
     const debtsResult = await Debt.findOne(
       { supplier: supplier._id, isPaid: false },
-      "totalAmount"
+      "totalAmount",
     ).lean();
 
     const ordersCount = await Order.countDocuments({ supplier: supplier._id });
-    const productsCount = await Product.countDocuments({ supplier: supplier._id });
+    const productsCount = await Product.countDocuments({
+      supplier: supplier._id,
+    });
 
     // Enrich the plain supplier object
     const enrichedSupplier = {
       ...supplier,
-      deliveredCommission,              // ← the field you want (only delivered)
+      deliveredCommission, // ← the field you want (only delivered)
       currentDebt: debtsResult?.totalAmount || 0,
       ordersCount,
       productsCount,
@@ -276,9 +319,7 @@ export const getAllUsers = async (req, res) => {
     }
 
     // Fetch users (sorted by newest first) + lean() to allow easy modification
-    let users = await User.find(query)
-      .sort({ createdAt: -1 })
-      .lean();
+    let users = await User.find(query).sort({ createdAt: -1 }).lean();
 
     // Extract supplier IDs
     const supplierIds = users
@@ -537,10 +578,10 @@ export const changeTraderPassword = async (req, res) => {
     const userId = req.user._id;
     const { oldPassword, newPassword } = req.body;
 
-    const user = await User.findById(userId).select('+password');
-    console.log('!user',!user)
-    console.log('user.role',user.role)
-    console.log(!user || user.role !== "trader")
+    const user = await User.findById(userId).select("+password");
+    console.log("!user", !user);
+    console.log("user.role", user.role);
+    console.log(!user || user.role !== "trader");
     if (!user || user.role !== "trader") {
       return res.status(500).json({
         success: false,
