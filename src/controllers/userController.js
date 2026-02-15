@@ -187,10 +187,7 @@ export const getSupplierById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Fetch supplier + lean() to get plain JS object
-    const supplier = await User.findById(id)
-      .select("-password -tokens") // exclude sensitive fields
-      .lean();
+    const supplier = await User.findById(id).select("-password -tokens").lean();
 
     if (!supplier || supplier.role !== "supplier") {
       return res.status(404).json({
@@ -199,12 +196,26 @@ export const getSupplierById = async (req, res) => {
       });
     }
 
-    // Calculate delivered commission (only delivered orders)
+    // Only delivered orders linked to an UNPAID debt
     const deliveredCommissionResult = await Order.aggregate([
       {
         $match: {
           supplier: supplier._id,
           status: "delivered",
+          debt: { $exists: true, $ne: null }, // has debt reference
+        },
+      },
+      {
+        $lookup: {
+          from: "debts",
+          localField: "debt",
+          foreignField: "_id",
+          as: "debtDoc",
+        },
+      },
+      {
+        $match: {
+          "debtDoc.isPaid": false, // only keep if the debt is unpaid
         },
       },
       {
@@ -232,8 +243,10 @@ export const getSupplierById = async (req, res) => {
       },
     ]);
 
-    const deliveredCommission = deliveredCommissionResult[0]?.total || 0;
-    // Other counts (using lean-compatible countDocuments)
+    const deliveredCommission = Math.round(
+      deliveredCommissionResult[0]?.total || 0,
+    );
+
     const debtsResult = await Debt.findOne(
       { supplier: supplier._id, isPaid: false },
       "totalAmount",
@@ -244,10 +257,9 @@ export const getSupplierById = async (req, res) => {
       supplier: supplier._id,
     });
 
-    // Enrich the plain supplier object
     const enrichedSupplier = {
       ...supplier,
-      deliveredCommission, // ← the field you want (only delivered)
+      deliveredCommission,
       currentDebt: debtsResult?.totalAmount || 0,
       ordersCount,
       productsCount,
@@ -315,28 +327,40 @@ export const getAllUsers = async (req, res) => {
     }
 
     // Fetch filtered users
-    let users = await User.find(query)
-      .sort({ createdAt: -1 })
-      .lean();
+    let users = await User.find(query).sort({ createdAt: -1 }).lean();
 
     // Only if we have suppliers in result → compute their delivered commission
-    const suppliers = users.filter(u => u.role === "supplier");
+    const suppliers = users.filter((u) => u.role === "supplier");
 
     let commissionMap = {};
 
     if (suppliers.length > 0) {
-      const supplierIds = suppliers.map(u => u._id);
+      const supplierIds = suppliers.map((u) => u._id);
 
       const commissionsAgg = await Order.aggregate([
         {
           $match: {
             supplier: { $in: supplierIds },
             status: "delivered",
+            debt: { $exists: true, $ne: null },
           },
         },
         {
           $lookup: {
-            from: "users", // change if your collection name is different (e.g. "suppliers")
+            from: "debts",
+            localField: "debt",
+            foreignField: "_id",
+            as: "debtDoc",
+          },
+        },
+        {
+          $match: {
+            "debtDoc.isPaid": false,
+          },
+        },
+        {
+          $lookup: {
+            from: "users",
             localField: "supplier",
             foreignField: "_id",
             as: "supplierDoc",
@@ -380,8 +404,7 @@ export const getAllUsers = async (req, res) => {
       }, {});
     }
 
-    // Enrich only suppliers in the current result set
-    users = users.map(user => {
+    users = users.map((user) => {
       if (user.role === "supplier") {
         const deliveredCommission = commissionMap[user._id.toString()] ?? 0;
         return {
