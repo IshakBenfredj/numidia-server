@@ -50,17 +50,29 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // Calculate original total from products
     let originalTotal = 0;
     const populatedProducts = await Promise.all(
       orderedProducts.map(async ({ productId, quantity }) => {
         const product = await Product.findById(productId);
         if (!product) {
-          throw new Error(`المنتج ${productId} غير موجود`);
+          return res.status(400).json({
+            success: false,
+            message: `المنتج ${productId} غير موجود`,
+          });
         }
 
         if (product.quantity < quantity) {
-          throw new Error(`الكمية المطلوبة لـ ${product.name} غير متوفرة`);
+           return res.status(400).json({
+            success: false,
+            message: `الكمية المطلوبة لـ ${product.name} غير متوفرة`,
+          });
+        }
+
+        if (product.minQuantity > quantity) {
+           return res.status(400).json({
+            success: false,
+            message: `الكمية المطلوبة لـ ${product.name} أقل من الكمية اللازم طلبها ${product.minQuantity}`,
+          });
         }
 
         originalTotal += quantity * product.price;
@@ -111,7 +123,7 @@ export const createOrder = async (req, res) => {
       city,
       deliveryType,
       deliveryAddress: deliveryAddress || "",
-      deliveryPrice : 0,
+      deliveryPrice: 0,
       linkedReports,
     });
 
@@ -161,7 +173,6 @@ export const confirmOrder = async (req, res) => {
       });
     }
 
-    // Check stock again before confirming (in case it changed)
     for (const item of order.products) {
       const product = await Product.findById(item.product);
       if (!product || product.quantity < item.quantity) {
@@ -178,7 +189,7 @@ export const confirmOrder = async (req, res) => {
         await Product.findByIdAndUpdate(item.product, {
           $inc: { quantity: -item.quantity },
         });
-      })
+      }),
     );
 
     order.status = "confirmed";
@@ -188,9 +199,10 @@ export const confirmOrder = async (req, res) => {
       isPaid: false,
     });
 
-    const effectiveTotal = order.deductedRetour
-      ? order.totalAmount - order.deductedRetour
-      : order.totalAmount;
+    const effectiveTotal =
+      order.deductedRetour > 0
+        ? order.totalAmount - order.deductedRetour
+        : order.totalAmount;
 
     if (!debt) {
       debt = await Debt.create({
@@ -198,7 +210,8 @@ export const confirmOrder = async (req, res) => {
         totalAmount: effectiveTotal * Number(order.supplier.commissionRate),
       });
     } else {
-      debt.totalAmount += effectiveTotal * Number(order.supplier.commissionRate);
+      debt.totalAmount +=
+        effectiveTotal * Number(order.supplier.commissionRate);
       await debt.save();
     }
 
@@ -534,11 +547,7 @@ export const updateOrderStatus = async (req, res) => {
     }
 
     if (["cancelled", "retour", "pending"].includes(status)) {
-      if (
-        ["confirmed", "delivered", "shipped"].includes(
-          previousStatus,
-        )
-      ) {
+      if (["confirmed", "delivered", "shipped"].includes(previousStatus)) {
         for (const item of order.products) {
           await Product.findByIdAndUpdate(item.product, {
             $inc: { quantity: item.quantity },

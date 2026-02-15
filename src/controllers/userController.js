@@ -4,6 +4,7 @@ import { deleteImage, uploadImageFromBase64 } from "../utils/cloudinary.js";
 import Debt from "../models/Debt.js";
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
+import mongoose from "mongoose";
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
   try {
@@ -33,13 +34,12 @@ export const createSupplierByAdmin = async (req, res) => {
       });
     }
 
-    const cleanPhone = phone.trim().replace(/[^\d+]/g, ""); 
+    const cleanPhone = phone.trim().replace(/[^\d+]/g, "");
 
     if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone)) {
       return res.status(400).json({
         success: false,
-        message:
-          "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح",
+        message: "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح",
       });
     }
 
@@ -232,10 +232,7 @@ export const getSupplierById = async (req, res) => {
       },
     ]);
 
-    const deliveredCommission = Math.round(
-      deliveredCommissionResult[0]?.total || 0,
-    );
-
+    const deliveredCommission = deliveredCommissionResult[0]?.total || 0;
     // Other counts (using lean-compatible countDocuments)
     const debtsResult = await Debt.findOne(
       { supplier: supplier._id, isPaid: false },
@@ -295,7 +292,6 @@ export const getUserById = async (req, res) => {
   }
 };
 
-// GET /api/users
 export const getAllUsers = async (req, res) => {
   try {
     const { search, role, isActive } = req.query;
@@ -318,40 +314,48 @@ export const getAllUsers = async (req, res) => {
       query.isActive = isActive === "true";
     }
 
-    // Fetch users (sorted by newest first) + lean() to allow easy modification
-    let users = await User.find(query).sort({ createdAt: -1 }).lean();
+    // Fetch filtered users
+    let users = await User.find(query)
+      .sort({ createdAt: -1 })
+      .lean();
 
-    // Extract supplier IDs
-    const supplierIds = users
-      .filter((u) => u.role === "supplier")
-      .map((u) => u._id);
+    // Only if we have suppliers in result → compute their delivered commission
+    const suppliers = users.filter(u => u.role === "supplier");
 
     let commissionMap = {};
 
-    // If there are suppliers → calculate delivered commission only
-    if (supplierIds.length > 0) {
-      const commissions = await Order.aggregate([
+    if (suppliers.length > 0) {
+      const supplierIds = suppliers.map(u => u._id);
+
+      const commissionsAgg = await Order.aggregate([
         {
           $match: {
             supplier: { $in: supplierIds },
-            status: "delivered", // ← only delivered orders
+            status: "delivered",
           },
         },
         {
-          $project: {
-            supplier: 1,
+          $lookup: {
+            from: "users", // change if your collection name is different (e.g. "suppliers")
+            localField: "supplier",
+            foreignField: "_id",
+            as: "supplierDoc",
+          },
+        },
+        { $unwind: { path: "$supplierDoc", preserveNullAndEmptyArrays: true } },
+        {
+          $set: {
             effectiveAmount: {
               $subtract: ["$totalAmount", { $ifNull: ["$deductedRetour", 0] }],
             },
           },
         },
         {
-          $project: {
-            supplier: 1,
+          $set: {
             commission: {
               $multiply: [
                 "$effectiveAmount",
-                { $ifNull: ["$supplier.commissionRate", 0.05] },
+                { $ifNull: ["$supplierDoc.commissionRate", 0.05] },
               ],
             },
           },
@@ -362,22 +366,27 @@ export const getAllUsers = async (req, res) => {
             deliveredCommission: { $sum: "$commission" },
           },
         },
+        {
+          $project: {
+            _id: 1,
+            deliveredCommission: { $round: ["$deliveredCommission", 0] },
+          },
+        },
       ]);
 
-      // Build map: supplierId → deliveredCommission (rounded)
-      commissionMap = commissions.reduce((acc, curr) => {
-        acc[curr._id.toString()] = Math.round(curr.deliveredCommission || 0);
+      commissionMap = commissionsAgg.reduce((acc, doc) => {
+        acc[doc._id.toString()] = doc.deliveredCommission;
         return acc;
       }, {});
     }
 
-    // Enrich suppliers with deliveredCommission field
-    users = users.map((user) => {
+    // Enrich only suppliers in the current result set
+    users = users.map(user => {
       if (user.role === "supplier") {
-        const deliveredCommission = commissionMap[user._id.toString()] || 0;
+        const deliveredCommission = commissionMap[user._id.toString()] ?? 0;
         return {
           ...user,
-          deliveredCommission, // ← exactly what you asked for
+          deliveredCommission,
         };
       }
       return user;
@@ -389,7 +398,7 @@ export const getAllUsers = async (req, res) => {
       data: users,
     });
   } catch (error) {
-    console.error("Get All Users Error:", error);
+    console.error("getAllUsers error:", error);
     res.status(500).json({
       success: false,
       message: "حدث خطأ في جلب المستخدمين",

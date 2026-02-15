@@ -2,6 +2,33 @@ import Debt from "../models/Debt.js";
 import Order from "../models/Order.js";
 import mongoose from "mongoose";
 
+// GET /api/debts/supplier/:id
+export const getSupplierDebts = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "معرف المورد غير صالح",
+      });
+    }
+
+    const debts = await Debt.find({ supplier: id })
+      .sort({ createdAt: -1 })
+      .populate("supplier", "name businessName phone commissionRate")
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      count: debts.length,
+      data: debts,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // GET /api/debts/supplier/:id/current
 export const getSupplierCurrentDebt = async (req, res, next) => {
   try {
@@ -28,7 +55,8 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
       });
     }
 
-    // Aggregate breakdown: delivered vs pending (confirmed/shipped)
+    const rate = debt.supplier?.commissionRate ?? 0.05;
+
     const commissionBreakdown = await Order.aggregate([
       {
         $match: {
@@ -45,13 +73,10 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
         },
       },
       {
-        $project: {
-          status: 1,
+        $addFields: {
+          // ← or $project
           commission: {
-            $multiply: [
-              "$effectiveAmount",
-              { $ifNull: ["$supplier.commissionRate", 0.05] },
-            ],
+            $multiply: ["$effectiveAmount", rate],
           },
         },
       },
@@ -86,7 +111,7 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
     // Warning if mismatch (allow 1 دج tolerance for rounding)
     if (Math.abs(calculatedTotalCommission - debt.totalAmount) > 1) {
       console.warn(
-        `Incohérence dette ${debt._id}: DB = ${debt.totalAmount}, calculé = ${calculatedTotalCommission}`
+        `Incohérence dette ${debt._id}: DB = ${debt.totalAmount}, calculé = ${calculatedTotalCommission}`,
       );
     }
 
@@ -101,37 +126,12 @@ export const getSupplierCurrentDebt = async (req, res, next) => {
         pendingOrdersCount: pendingCount,
         deliveredPercentage:
           calculatedTotalCommission > 0
-            ? Math.round((deliveredCommission / calculatedTotalCommission) * 100)
+            ? Math.round(
+                (deliveredCommission / calculatedTotalCommission) * 100,
+              )
             : 0,
         effectiveTotalUsedForCommission: calculatedTotalCommission,
       },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// GET /api/debts/supplier/:id
-export const getSupplierDebts = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "معرف المورد غير صالح",
-      });
-    }
-
-    const debts = await Debt.find({ supplier: id })
-      .sort({ createdAt: -1 })
-      .populate("supplier", "name businessName phone commissionRate")
-      .lean();
-
-    res.status(200).json({
-      success: true,
-      count: debts.length,
-      data: debts,
     });
   } catch (error) {
     next(error);
@@ -142,7 +142,7 @@ export const getSupplierDebts = async (req, res, next) => {
 export const getCurrentDebts = async (req, res, next) => {
   try {
     const debts = await Debt.find({ isPaid: false })
-      .populate("supplier", "name businessName phone commissionRate")
+      .populate("supplier", "name phone commissionRate")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -159,6 +159,10 @@ export const getCurrentDebts = async (req, res, next) => {
 
     const enrichedDebts = await Promise.all(
       debts.map(async (debt) => {
+        // inside debts.map(async (debt) => {
+
+        const rate = debt.supplier?.commissionRate ?? 0.05;
+
         const breakdown = await Order.aggregate([
           {
             $match: {
@@ -169,20 +173,19 @@ export const getCurrentDebts = async (req, res, next) => {
           {
             $project: {
               effectiveAmount: {
-                $subtract: ["$totalAmount", { $ifNull: ["$deductedRetour", 0] }],
+                $subtract: [
+                  "$totalAmount",
+                  { $ifNull: ["$deductedRetour", 0] },
+                ],
               },
               status: 1,
             },
           },
           {
-            $project: {
+            $addFields: {
               commission: {
-                $multiply: [
-                  "$effectiveAmount",
-                  { $ifNull: ["$supplier.commissionRate", 0.05] },
-                ],
+                $multiply: ["$effectiveAmount", rate],
               },
-              status: 1,
             },
           },
           {
@@ -193,6 +196,8 @@ export const getCurrentDebts = async (req, res, next) => {
             },
           },
         ]);
+
+        // ... rest remains the same
 
         let deliveredCommission = 0;
         let pendingCommission = 0;
@@ -218,12 +223,21 @@ export const getCurrentDebts = async (req, res, next) => {
           pendingCount,
           calculatedTotal: deliveredCommission + pendingCommission,
         };
-      })
+      }),
     );
 
-    const totalUnpaid = enrichedDebts.reduce((sum, d) => sum + d.totalAmount, 0);
-    const totalDelivered = enrichedDebts.reduce((sum, d) => sum + d.deliveredCommission, 0);
-    const totalPending = enrichedDebts.reduce((sum, d) => sum + d.pendingCommission, 0);
+    const totalUnpaid = enrichedDebts.reduce(
+      (sum, d) => sum + d.totalAmount,
+      0,
+    );
+    const totalDelivered = enrichedDebts.reduce(
+      (sum, d) => sum + d.deliveredCommission,
+      0,
+    );
+    const totalPending = enrichedDebts.reduce(
+      (sum, d) => sum + d.pendingCommission,
+      0,
+    );
 
     res.status(200).json({
       success: true,
@@ -300,7 +314,9 @@ export const payDebtDelivered = async (req, res, next) => {
       },
     ]);
 
-    const movedAmount = Math.round(pendingBreakdown[0]?.totalPendingCommission || 0);
+    const movedAmount = Math.round(
+      pendingBreakdown[0]?.totalPendingCommission || 0,
+    );
     const movedOrdersCount = pendingBreakdown[0]?.count || 0;
 
     // Mark old debt as paid (only keep delivered part)
