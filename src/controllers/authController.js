@@ -25,6 +25,7 @@ const sendResponse = (res, statusCode, message, user = null, token = true) => {
         logo: user.logo || null,
         businessName: user.businessName || null,
         commissionRate: user.commissionRate || null,
+        type: user.type || null,
       },
       ...(token && { token: generateToken(user._id) }),
     };
@@ -71,8 +72,6 @@ export const register = async (req, res) => {
       phone: cleanPhone,
       password,
       address: address ? address.trim() : undefined,
-      // role: سيبقى افتراضيًا "trader" حسب السكيما
-      // isActive: سيبقى true افتراضيًا
     });
 
     // 7. الرد الناجح

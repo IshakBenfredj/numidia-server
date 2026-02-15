@@ -102,8 +102,6 @@ export const getDashboardAnalyticsTabs = async (req, res) => {
       await Promise.all([
         Order.countDocuments(queryOrder),
         Report.countDocuments(queryReport),
-        // Only admins probably care about new traders
-        // You can also condition this:
         role === "admin"
           ? User.countDocuments({
               role: "trader",
