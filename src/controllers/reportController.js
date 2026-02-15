@@ -142,10 +142,9 @@ export const getMyReports = async (req, res, next) => {
 
     const supplierId = req.user._id;
 
-    const reports = await Report.find({})
+    const reports = await Report.find({ supplier: supplierId })
       .populate({
         path: "order",
-        match: { supplier: supplierId },
         select: "totalAmount status createdAt trader",
         populate: {
           path: "trader",
