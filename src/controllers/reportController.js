@@ -149,6 +149,9 @@ export const getMyReports = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .lean();
 
+
+      console.log('reports', reports)
+
     const filteredReports = reports.filter((report) => report.order !== null);
 
     res.status(200).json({

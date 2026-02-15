@@ -44,7 +44,7 @@ export const createProduct = async (req, res) => {
       product,
     });
   } catch (error) {
-    console.log(error)
+    console.log(error);
     res.status(400).json({
       success: false,
       message: error.message || "فشل إنشاء المنتج",
@@ -130,7 +130,7 @@ export const updateProduct = async (req, res) => {
               ? Number(oldPrice)
               : undefined
             : product.oldPrice,
-        quantity: quantity || product.quantity,
+        quantity: quantity !== undefined ? Number(quantity) : product.quantity,
         minQuantity: minQuantity || product.minQuantity,
         category: category || product.category,
         description:

@@ -67,7 +67,6 @@ export const createOrder = async (req, res) => {
             message: `الكمية المطلوبة لـ ${product.name} غير متوفرة`,
           });
         }
-
         if (product.minQuantity > quantity) {
            return res.status(400).json({
             success: false,
