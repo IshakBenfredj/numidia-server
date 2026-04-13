@@ -1,10 +1,229 @@
+// import User from "../models/User.js";
+// import bcrypt from "bcryptjs";
+// import { deleteImage, uploadImageFromBase64 } from "../utils/cloudinary.js";
+// import Debt from "../models/Debt.js";
+// import Order from "../models/Order.js";
+// import Product from "../models/Product.js";
+// // POST /api/users/supplier
+// export const createSupplierByAdmin = async (req, res) => {
+//   try {
+//     const {
+//       name,
+//       phone,
+//       address,
+//       password,
+//       logo,
+//       businessName,
+//       commissionRate = 0.05,
+//       type,
+//     } = req.body;
+
+//     if (!name?.trim() || !phone?.trim() || !password || !address?.trim()) {
+//       return res.status(400).json({
+//         success: false,
+//         message:
+//           "الحقول التالية مطلوبة: الاسم، رقم الهاتف، كلمة المرور، العنوان ",
+//       });
+//     }
+
+//     if (!type || !["accessoire", "spart_parts"].includes(type)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "نوع المورد مطلوب ويجب أن يكون: accessoire أو spart_parts",
+//       });
+//     }
+
+//     const cleanPhone = phone.trim().replace(/[^\d+]/g, "");
+
+//     if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح",
+//       });
+//     }
+
+//     if (password.length < 6) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل",
+//       });
+//     }
+
+//     if (
+//       Number.isNaN(Number(commissionRate)) ||
+//       commissionRate < 0 ||
+//       commissionRate > 1
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "نسبة العمولة يجب أن تكون رقمًا بين 0 و 1",
+//       });
+//     }
+
+//     // ─── Business logic checks ───────────────────────────────
+//     const existing = await User.findOne({ phone: cleanPhone });
+//     if (existing) {
+//       return res.status(409).json({
+//         success: false,
+//         message: "رقم الهاتف مسجل مسبقًا",
+//       });
+//     }
+
+//     // Handle logo upload (only if provided)
+//     let logoUrl = null;
+//     if (logo && typeof logo === "string" && logo.startsWith("data:image")) {
+//       const uploadResult = await uploadImageFromBase64(logo);
+//       logoUrl = uploadResult?.url || null;
+//     }
+
+//     // ─── Create ──────────────────────────────────────────────
+//     const supplier = await User.create({
+//       name: name.trim(),
+//       phone: cleanPhone,
+//       password, // will be hashed in pre-save
+//       address: address.trim(),
+//       role: "supplier",
+//       logo: logoUrl,
+//       businessName: businessName.trim(),
+//       commissionRate: Number(commissionRate),
+//       type,
+//       isActive: true,
+//     });
+
+//     // Remove password from response
+//     const { password: _, ...safeSupplier } = supplier.toObject();
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "تم إنشاء حساب المورد بنجاح",
+//       data: safeSupplier,
+//     });
+//   } catch (error) {
+//     console.error("Create Supplier Error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "حدث خطأ في الخادم، يرجى المحاولة لاحقًا",
+//     });
+//   }
+// };
+
+// // PUT /api/users/supplier/:id
+// export const editSupplierByAdmin = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const {
+//       name,
+//       phone,
+//       address,
+//       password,
+//       logo,
+//       businessName,
+//       commissionRate,
+//       isActive,
+//       type,
+//     } = req.body;
+
+//     const supplier = await User.findById(id);
+//     if (!supplier || supplier.role !== "supplier") {
+//       return res.status(404).json({
+//         success: false,
+//         message: "المورد غير موجود",
+//       });
+//     }
+
+//     if (phone && phone !== supplier.phone) {
+//       const existing = await User.findOne({ phone });
+//       if (existing) {
+//         return res.status(409).json({
+//           success: false,
+//           message: "رقم الهاتف مسجل لمستخدم آخر",
+//         });
+//       }
+//     }
+
+//     if (logo && logo.startsWith("data:")) {
+//       const logoUrl = await uploadImageFromBase64(logo);
+//       await deleteImage(supplier.logo);
+//       supplier.logo = logoUrl.url;
+//     }
+
+//     // تحديث الحقول
+//     supplier.name = name ?? supplier.name;
+//     supplier.phone = phone ?? supplier.phone;
+//     supplier.address = address ?? supplier.address;
+//     supplier.businessName = businessName ?? supplier.businessName;
+//     supplier.commissionRate =
+//       commissionRate !== undefined
+//         ? Number(commissionRate)
+//         : supplier.commissionRate;
+//     supplier.isActive = isActive !== undefined ? isActive : supplier.isActive;
+//     supplier.type = type ?? supplier.type;
+
+//     if (password) {
+//       supplier.password = await bcrypt.hash(password, 12);
+//     }
+
+//     await supplier.save();
+
+//     const { password: _, ...supplierWithoutPassword } = supplier.toObject();
+
+//     res.status(200).json({
+//       success: true,
+//       message: "تم تعديل المورد بنجاح",
+//       data: supplierWithoutPassword,
+//     });
+//   } catch (error) {
+//     console.error("Edit Supplier Error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "حدث خطأ في الخادم",
+//     });
+//   }
+// };
+
+// // DELETE /api/users/:id
+// export const deleteUser = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const user = await User.findById(id);
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "المستخدم غير موجود",
+//       });
+//     }
+
+//     if (user.role === "admin") {
+//       return res.status(403).json({
+//         success: false,
+//         message: "لا يمكن حذف حساب الإدارة",
+//       });
+//     }
+
+//     await User.findByIdAndDelete(id);
+
+//     res.status(200).json({
+//       success: true,
+//       message: "تم حذف المستخدم بنجاح",
+//     });
+//   } catch (error) {
+//     console.error("Delete User Error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "حدث خطأ في حذف المستخدم",
+//     });
+//   }
+// };
+
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
-import { deleteImage, uploadImageFromBase64 } from "../utils/cloudinary.js";
 import Debt from "../models/Debt.js";
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
-import mongoose from "mongoose";
+import { deleteFileByUrl, uploadSingleImage } from "../utils/r2storage.js";
+import Report from "../models/Report.js";
+
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
   try {
@@ -73,8 +292,7 @@ export const createSupplierByAdmin = async (req, res) => {
     // Handle logo upload (only if provided)
     let logoUrl = null;
     if (logo && typeof logo === "string" && logo.startsWith("data:image")) {
-      const uploadResult = await uploadImageFromBase64(logo);
-      logoUrl = uploadResult?.url || null;
+      logoUrl = await uploadSingleImage(logo, "logos");
     }
 
     // ─── Create ──────────────────────────────────────────────
@@ -85,7 +303,7 @@ export const createSupplierByAdmin = async (req, res) => {
       address: address.trim(),
       role: "supplier",
       logo: logoUrl,
-      businessName: businessName.trim(),
+      businessName: businessName?.trim(),
       commissionRate: Number(commissionRate),
       type,
       isActive: true,
@@ -142,27 +360,36 @@ export const editSupplierByAdmin = async (req, res) => {
       }
     }
 
-    if (logo && logo.startsWith("data:")) {
-      const logoUrl = await uploadImageFromBase64(logo);
-      await deleteImage(supplier.logo);
-      supplier.logo = logoUrl.url;
+    // Handle logo update
+    if (logo && typeof logo === "string" && logo.startsWith("data:")) {
+      // Upload new logo to R2
+      const newLogoUrl = await uploadSingleImage(logo, "logos");
+
+      // Delete old logo from R2 if exists
+      if (supplier.logo) {
+        await deleteFileByUrl(supplier.logo);
+      }
+
+      supplier.logo = newLogoUrl;
     }
 
-    // تحديث الحقول
-    supplier.name = name ?? supplier.name;
-    supplier.phone = phone ?? supplier.phone;
-    supplier.address = address ?? supplier.address;
-    supplier.businessName = businessName ?? supplier.businessName;
-    supplier.commissionRate =
-      commissionRate !== undefined
-        ? Number(commissionRate)
-        : supplier.commissionRate;
-    supplier.isActive = isActive !== undefined ? isActive : supplier.isActive;
-    supplier.type = type ?? supplier.type;
+    // Update other fields
+    if (name) supplier.name = name.trim();
+    if (phone) supplier.phone = phone.trim().replace(/[^\d+]/g, "");
+    if (address) supplier.address = address.trim();
+    if (businessName) supplier.businessName = businessName.trim();
 
-    if (password) {
-      supplier.password = await bcrypt.hash(password, 12);
+    if (commissionRate !== undefined) {
+      supplier.commissionRate = Number(commissionRate);
     }
+
+    if (isActive !== undefined) {
+      supplier.isActive = isActive;
+    }
+
+    if (type) supplier.type = type;
+
+    supplier.password = password ? password : supplier.password;
 
     await supplier.save();
 
@@ -179,6 +406,101 @@ export const editSupplierByAdmin = async (req, res) => {
       success: false,
       message: "حدث خطأ في الخادم",
     });
+  }
+};
+
+// DELETE /api/users/:id
+export const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    }
+
+    if (user.role === "admin") {
+      return res.status(403).json({ success: false, message: "لا يمكن حذف حساب الإدارة" });
+    }
+
+    // ── 1. Delete logo from R2 ───────────────────────────────
+    if (user.logo) {
+      await deleteFileByUrl(user.logo).catch(console.error);
+    }
+
+    if (user.role === "supplier") {
+      // ── 2. Get all supplier's products ──────────────────────
+      const products = await Product.find({ supplier: id });
+      const productIds = products.map((p) => p._id);
+
+      // ── 3. Delete product images from R2 ────────────────────
+      for (const product of products) {
+        if (product.images?.length) {
+          await Promise.all(
+            product.images.map((img) => deleteFileByUrl(img).catch(console.error))
+          );
+        }
+      }
+
+      // ── 4. Get all orders that include supplier's products ───
+      const affectedOrders = await Order.find({
+        $or: [
+          { supplier: id },
+          { "products.product": { $in: productIds } },
+        ],
+      });
+      const affectedOrderIds = affectedOrders.map((o) => o._id);
+
+      // ── 5. Delete reports linked to those orders ─────────────
+      await Report.deleteMany({
+        $or: [
+          { order: { $in: affectedOrderIds } },
+          { supplier: id },
+        ],
+      });
+
+      // ── 6. Delete debts linked to supplier ───────────────────
+      await Debt.deleteMany({ supplier: id });
+
+      // ── 7. Delete orders ─────────────────────────────────────
+      await Order.deleteMany({ _id: { $in: affectedOrderIds } });
+
+      // ── 8. Delete products ───────────────────────────────────
+      await Product.deleteMany({ supplier: id });
+    }
+
+    if (user.role === "trader") {
+      // ── 2. Get all trader's orders ───────────────────────────
+      const traderOrders = await Order.find({ trader: id });
+      const traderOrderIds = traderOrders.map((o) => o._id);
+
+      // ── 3. Delete reports linked to trader's orders ──────────
+      await Report.deleteMany({
+        $or: [
+          { order: { $in: traderOrderIds } },
+          { trader: id },
+        ],
+      });
+
+      // ── 4. Delete debts from trader's orders ─────────────────
+      const debtIds = traderOrders
+        .filter((o) => o.debt)
+        .map((o) => o.debt);
+      if (debtIds.length) {
+        await Debt.deleteMany({ _id: { $in: debtIds } });
+      }
+
+      // ── 5. Delete trader's orders ────────────────────────────
+      await Order.deleteMany({ trader: id });
+    }
+
+    // ── Final: delete the user ───────────────────────────────
+    await User.findByIdAndDelete(id);
+
+    res.status(200).json({ success: true, message: "تم حذف المستخدم وجميع بياناته بنجاح" });
+  } catch (error) {
+    console.error("Delete User Error:", error);
+    res.status(500).json({ success: false, message: "حدث خطأ في حذف المستخدم" });
   }
 };
 
@@ -488,41 +810,6 @@ export const getUsersByType = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "حدث خطأ في جلب الموردين",
-    });
-  }
-};
-
-// DELETE /api/users/:id
-export const deleteUser = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const user = await User.findById(id);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "المستخدم غير موجود",
-      });
-    }
-
-    if (user.role === "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "لا يمكن حذف حساب الإدارة",
-      });
-    }
-
-    await User.findByIdAndDelete(id);
-
-    res.status(200).json({
-      success: true,
-      message: "تم حذف المستخدم بنجاح",
-    });
-  } catch (error) {
-    console.error("Delete User Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "حدث خطأ في حذف المستخدم",
     });
   }
 };

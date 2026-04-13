@@ -13,7 +13,6 @@ const AdsSchema = new Schema(
     image: {
       type: {
         url: { type: String, required: [true, "الصورة مطلوبة"] },
-        public_id: { type: String },
       },
       required: [true, "صورة الإعلان مطلوبة"],
     },

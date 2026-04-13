@@ -70,6 +70,26 @@ const UserSchema = new Schema(
         return this.role === "supplier";
       },
     },
+    // Add these fields to UserSchema
+    email: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      lowercase: true,
+    },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationOtp: {
+      code: { type: String, select: false },
+      expiresAt: { type: Date, select: false },
+    },
+    passwordResetOtp: {
+      code: { type: String, select: false },
+      expiresAt: { type: Date, select: false },
+    },
     tokens: {
       type: [String],
       default: [],

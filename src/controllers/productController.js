@@ -1,10 +1,193 @@
+// // controllers/productController.js
+// import Product from "../models/Product.js";
+// import {
+//   uploadMultipleFromBase64,
+//   deleteMultipleImages,
+//   getPublicIdFromUrl,
+// } from "../utils/cloudinary.js";
+
+// export const createProduct = async (req, res) => {
+//   try {
+//     const {
+//       name,
+//       price,
+//       oldPrice,
+//       quantity,
+//       minQuantity,
+//       category,
+//       description,
+//       images: base64Images = [],
+//     } = req.body;
+
+//     const supplier = req.user._id;
+
+//     let uploadedImages = [];
+//     if (base64Images.length > 0) {
+//       uploadedImages = await uploadMultipleFromBase64(base64Images);
+//     }
+
+//     const product = await Product.create({
+//       name,
+//       price,
+//       oldPrice: oldPrice ? Number(oldPrice) : undefined,
+//       quantity: Number(quantity),
+//       minQuantity: Number(minQuantity),
+//       category,
+//       description: description || "",
+//       images: uploadedImages.map((img) => img.url),
+//       supplier,
+//     });
+
+//     res.status(201).json({
+//       success: true,
+//       message: "تم اضافة المنتج بنجاح",
+//       product,
+//     });
+//   } catch (error) {
+//     console.log(error);
+//     res.status(400).json({
+//       success: false,
+//       message: error.message || "فشل إنشاء المنتج",
+//     });
+//   }
+// };
+
+// export const updateProduct = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const {
+//       name,
+//       price,
+//       oldPrice,
+//       quantity,
+//       minQuantity,
+//       category,
+//       description,
+//       images,
+//     } = req.body;
+
+//     console.log(oldPrice, "oldPrice value");
+//     console.log(price, "price value");
+
+//     const product = await Product.findById(id);
+//     if (!product) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "المنتج غير موجود" });
+//     }
+
+//     if (product.supplier.toString() !== req.user._id.toString()) {
+//       return res.status(403).json({ success: false, message: "غير مصرح" });
+//     }
+
+//     if (oldPrice < price) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "السعر قبل التخفيض يجب أن يكون أكبر من السعر الحالي",
+//       });
+//     }
+
+//     const currentImages = product.images || [];
+//     let finalImageUrls = [...currentImages];
+
+//     const newBase64Images = images.filter((img) =>
+//       img.startsWith("data:image/"),
+//     );
+
+//     console.log("New base64 images to upload:", newBase64Images.length);
+
+//     if (newBase64Images.length > 0) {
+//       const uploaded = await uploadMultipleFromBase64(newBase64Images);
+//       const newUrls = uploaded.map((img) => img.url);
+//       finalImageUrls = [...finalImageUrls, ...newUrls];
+//     }
+
+//     const imagesToDelete = currentImages.filter(
+//       (oldUrl) => !images.includes(oldUrl),
+//     );
+
+//     if (imagesToDelete.length > 0) {
+//       const publicIds = imagesToDelete.map(getPublicIdFromUrl);
+
+//       console.log("Deleting images with public IDs:", publicIds);
+
+//       if (publicIds.length > 0) {
+//         await deleteMultipleImages(publicIds);
+//         finalImageUrls = finalImageUrls.filter(
+//           (url) => !imagesToDelete.includes(url),
+//         );
+//       }
+//     }
+
+//     const updatedProduct = await Product.findByIdAndUpdate(
+//       id,
+//       {
+//         name: name || product.name,
+//         price: price || product.price,
+//         oldPrice:
+//           oldPrice !== undefined
+//             ? oldPrice
+//               ? Number(oldPrice)
+//               : undefined
+//             : product.oldPrice,
+//         quantity: quantity !== undefined ? Number(quantity) : product.quantity,
+//         minQuantity: minQuantity || product.minQuantity,
+//         category: category || product.category,
+//         description:
+//           description !== undefined ? description : product.description,
+//         images: finalImageUrls.slice(0, 5),
+//       },
+//       { new: true, runValidators: true },
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       product: updatedProduct,
+//       message: "تم تعديل المنتج بنجاح",
+//     });
+//   } catch (error) {
+//     console.error("Update product error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message || "فشل تعديل المنتج",
+//     });
+//   }
+// };
+
+// export const deleteProduct = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const product = await Product.findById(id);
+
+//     if (!product) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "المنتج غير موجود" });
+//     }
+
+//     if (product.supplier.toString() !== req.user._id.toString()) {
+//       return res.status(403).json({ success: false, message: "غير مصرح" });
+//     }
+
+//     if (product.images.length > 0) {
+//       const publicIds = product.images.map(getPublicIdFromUrl).filter(Boolean);
+//       if (publicIds.length > 0) {
+//         await deleteMultipleImages(publicIds);
+//       }
+//     }
+
+//     await Product.findByIdAndDelete(id);
+
+//     res.status(200).json({ success: true, message: "تم حذف المنتج بنجاح" });
+//   } catch (error) {
+//     res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
 // controllers/productController.js
 import Product from "../models/Product.js";
-import {
-  uploadMultipleFromBase64,
-  deleteMultipleImages,
-  getPublicIdFromUrl,
-} from "../utils/cloudinary.js";
+import { deleteFileByUrl, uploadMultipleImages } from "../utils/r2storage.js";
+
 
 export const createProduct = async (req, res) => {
   try {
@@ -21,9 +204,10 @@ export const createProduct = async (req, res) => {
 
     const supplier = req.user._id;
 
-    let uploadedImages = [];
+    let uploadedImageUrls = [];
     if (base64Images.length > 0) {
-      uploadedImages = await uploadMultipleFromBase64(base64Images);
+      // Use your new R2 helper
+      uploadedImageUrls = await uploadMultipleImages(base64Images, "products");
     }
 
     const product = await Product.create({
@@ -34,7 +218,7 @@ export const createProduct = async (req, res) => {
       minQuantity: Number(minQuantity),
       category,
       description: description || "",
-      images: uploadedImages.map((img) => img.url),
+      images: uploadedImageUrls,           // Now it's array of direct URLs
       supplier,
     });
 
@@ -44,7 +228,7 @@ export const createProduct = async (req, res) => {
       product,
     });
   } catch (error) {
-    console.log(error);
+    console.error("Create product error:", error);
     res.status(400).json({
       success: false,
       message: error.message || "فشل إنشاء المنتج",
@@ -63,11 +247,8 @@ export const updateProduct = async (req, res) => {
       minQuantity,
       category,
       description,
-      images,
+      images,           // Can contain existing URLs + new base64 images
     } = req.body;
-
-    console.log(oldPrice, "oldPrice value");
-    console.log(price, "price value");
 
     const product = await Product.findById(id);
     if (!product) {
@@ -80,7 +261,7 @@ export const updateProduct = async (req, res) => {
       return res.status(403).json({ success: false, message: "غير مصرح" });
     }
 
-    if (oldPrice < price) {
+    if (oldPrice !== undefined && Number(oldPrice) < Number(price)) {
       return res.status(400).json({
         success: false,
         message: "السعر قبل التخفيض يجب أن يكون أكبر من السعر الحالي",
@@ -90,40 +271,43 @@ export const updateProduct = async (req, res) => {
     const currentImages = product.images || [];
     let finalImageUrls = [...currentImages];
 
-    const newBase64Images = images.filter((img) =>
-      img.startsWith("data:image/"),
+    // 1. Separate new base64 images from existing URLs
+    const newBase64Images = (images || []).filter((img) =>
+      typeof img === "string" && img.startsWith("data:image/")
     );
 
-    console.log("New base64 images to upload:", newBase64Images.length);
-
+    // 2. Upload new images to R2
     if (newBase64Images.length > 0) {
-      const uploaded = await uploadMultipleFromBase64(newBase64Images);
-      const newUrls = uploaded.map((img) => img.url);
+      const newUrls = await uploadMultipleImages(newBase64Images, "products");
       finalImageUrls = [...finalImageUrls, ...newUrls];
     }
 
+    // 3. Detect images to delete (those that were sent originally but not in the new request)
     const imagesToDelete = currentImages.filter(
-      (oldUrl) => !images.includes(oldUrl),
+      (oldUrl) => !images.includes(oldUrl)
     );
 
+    // 4. Delete removed images from R2
     if (imagesToDelete.length > 0) {
-      const publicIds = imagesToDelete.map(getPublicIdFromUrl);
+      console.log(`Deleting ${imagesToDelete.length} images from R2`);
+      await Promise.all(
+        imagesToDelete.map((url) => deleteFileByUrl(url))
+      );
 
-      console.log("Deleting images with public IDs:", publicIds);
-
-      if (publicIds.length > 0) {
-        await deleteMultipleImages(publicIds);
-        finalImageUrls = finalImageUrls.filter(
-          (url) => !imagesToDelete.includes(url),
-        );
-      }
+      // Remove deleted URLs from final array
+      finalImageUrls = finalImageUrls.filter(
+        (url) => !imagesToDelete.includes(url)
+      );
     }
+
+    // Limit to maximum 5 images
+    finalImageUrls = finalImageUrls.slice(0, 5);
 
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       {
         name: name || product.name,
-        price: price || product.price,
+        price: price !== undefined ? Number(price) : product.price,
         oldPrice:
           oldPrice !== undefined
             ? oldPrice
@@ -131,13 +315,13 @@ export const updateProduct = async (req, res) => {
               : undefined
             : product.oldPrice,
         quantity: quantity !== undefined ? Number(quantity) : product.quantity,
-        minQuantity: minQuantity || product.minQuantity,
+        minQuantity: minQuantity !== undefined ? Number(minQuantity) : product.minQuantity,
         category: category || product.category,
         description:
           description !== undefined ? description : product.description,
-        images: finalImageUrls.slice(0, 5),
+        images: finalImageUrls,
       },
-      { new: true, runValidators: true },
+      { new: true, runValidators: true }
     );
 
     res.status(200).json({
@@ -169,17 +353,19 @@ export const deleteProduct = async (req, res) => {
       return res.status(403).json({ success: false, message: "غير مصرح" });
     }
 
-    if (product.images.length > 0) {
-      const publicIds = product.images.map(getPublicIdFromUrl).filter(Boolean);
-      if (publicIds.length > 0) {
-        await deleteMultipleImages(publicIds);
-      }
+    // Delete all images from R2
+    if (product.images && product.images.length > 0) {
+      console.log(`Deleting ${product.images.length} images from R2`);
+      await Promise.all(
+        product.images.map((url) => deleteFileByUrl(url))
+      );
     }
 
     await Product.findByIdAndDelete(id);
 
     res.status(200).json({ success: true, message: "تم حذف المنتج بنجاح" });
   } catch (error) {
+    console.error("Delete product error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
