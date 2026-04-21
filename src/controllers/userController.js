@@ -389,7 +389,7 @@ export const editSupplierByAdmin = async (req, res) => {
 
     if (type) supplier.type = type;
 
-    supplier.password = password ? password : supplier.password;
+    if (password) supplier.password = password;
 
     await supplier.save();
 
