@@ -310,3 +310,28 @@ export const getMe = async (req, res) => {
     sendResponse(res, 500, "حدث خطأ في الخادم، يرجى المحاولة لاحقًا");
   }
 };
+
+// ─── SAVE PUSH TOKEN ──────────────────────────────────────────
+export const savePushToken = async (req, res) => {
+  try {
+    const { expoPushToken } = req.body;
+    if (!expoPushToken) {
+      return res.status(400).json({ success: false, message: "رمز الإشعار مطلوب" });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    }
+
+    if (!user.tokens.includes(expoPushToken)) {
+      user.tokens.push(expoPushToken);
+      await user.save();
+    }
+
+    res.status(200).json({ success: true, message: "تم حفظ رمز الإشعار بنجاح" });
+  } catch (error) {
+    console.error("Save Push Token Error:", error);
+    res.status(500).json({ success: false, message: "حدث خطأ في الخادم" });
+  }
+};

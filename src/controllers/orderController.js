@@ -4,6 +4,7 @@ import Product from "../models/Product.js";
 import User from "../models/User.js";
 import Report from "../models/Report.js";
 import mongoose from "mongoose";
+import { sendPushNotification } from "../utils/pushNotifications.js";
 
 export const createOrder = async (req, res) => {
   try {
@@ -132,6 +133,29 @@ export const createOrder = async (req, res) => {
       await report.save();
     }
 
+    // Send push notification to Admins
+    try {
+      const admins = await User.find({ role: "admin" }).select("tokens");
+      const adminTokens = admins.reduce((acc, adminUser) => {
+        if (adminUser.tokens && adminUser.tokens.length > 0) {
+          acc.push(...adminUser.tokens);
+        }
+        return acc;
+      }, []);
+
+      if (adminTokens.length > 0) {
+        const traderName = req.user.name || "مستخدم";
+        sendPushNotification(
+          adminTokens,
+          "طلب جديد 📦",
+          `قام ${traderName} بإنشاء طلب جديد بقيمة ${originalTotal} دج.`,
+          { orderId: order._id.toString(), type: "NEW_ORDER" }
+        );
+      }
+    } catch (pushError) {
+      console.error("Error sending push notification to admins:", pushError);
+    }
+
     res.status(201).json({
       success: true,
       message: "تم إنشاء الطلب بنجاح",
@@ -216,6 +240,20 @@ export const confirmOrder = async (req, res) => {
 
     order.debt = debt ? debt._id : null;
     await order.save();
+
+    // Send push notification to Supplier
+    try {
+      if (order.supplier && order.supplier.tokens && order.supplier.tokens.length > 0) {
+        sendPushNotification(
+          order.supplier.tokens,
+          "طلب جديد مؤكد 🚚",
+          "تم تأكيد الطلب من قبل الإدارة. يرجى البدء في تجهيز المنتجات.",
+          { orderId: order._id.toString(), type: "CONFIRM_ORDER" }
+        );
+      }
+    } catch (pushError) {
+      console.error("Error sending push notification to supplier:", pushError);
+    }
 
     res.status(200).json({
       success: true,
