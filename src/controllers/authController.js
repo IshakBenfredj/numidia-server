@@ -42,12 +42,15 @@ const generateOtp = () => crypto.randomInt(100000, 999999).toString();
 const pendingOtps = new Map();
 
 // Cleanup expired entries every 15 minutes
-setInterval(() => {
-  const now = new Date();
-  for (const [key, val] of pendingOtps.entries()) {
-    if (now > val.expiresAt) pendingOtps.delete(key);
-  }
-}, 15 * 60 * 1000);
+setInterval(
+  () => {
+    const now = new Date();
+    for (const [key, val] of pendingOtps.entries()) {
+      if (now > val.expiresAt) pendingOtps.delete(key);
+    }
+  },
+  15 * 60 * 1000,
+);
 
 // ─── SEND REGISTER OTP ───────────────────────────────────────
 export const sendRegisterOtp = async (req, res) => {
@@ -59,7 +62,11 @@ export const sendRegisterOtp = async (req, res) => {
 
     const cleanPhone = phone.trim().replace(/[^\d+]/g, "");
     if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone))
-      return sendResponse(res, 400, "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح");
+      return sendResponse(
+        res,
+        400,
+        "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح",
+      );
 
     if (await User.findOne({ phone: cleanPhone }))
       return sendResponse(res, 409, "رقم الهاتف مسجل مسبقًا");
@@ -93,7 +100,11 @@ export const register = async (req, res) => {
 
     const cleanPhone = phone.trim().replace(/[^\d+]/g, "");
     if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone))
-      return sendResponse(res, 400, "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح");
+      return sendResponse(
+        res,
+        400,
+        "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح",
+      );
 
     if (password.length < 6)
       return sendResponse(res, 400, "كلمة المرور يجب أن تكون 6 أحرف على الأقل");
@@ -101,9 +112,12 @@ export const register = async (req, res) => {
     // ── Verify OTP ──────────────────────────────────────────
     const pending = pendingOtps.get(email.toLowerCase());
     if (!pending)
-      return sendResponse(res, 400, "لم يتم طلب كود تحقق لهذا البريد، أعد الإرسال");
-    if (pending.otp !== otp)
-      return sendResponse(res, 400, "الكود غير صحيح");
+      return sendResponse(
+        res,
+        400,
+        "لم يتم طلب كود تحقق لهذا البريد، أعد الإرسال",
+      );
+    if (pending.otp !== otp) return sendResponse(res, 400, "الكود غير صحيح");
     if (new Date() > pending.expiresAt)
       return sendResponse(res, 400, "انتهت صلاحية الكود، أعد الإرسال");
 
@@ -193,7 +207,11 @@ export const forgotPassword = async (req, res) => {
 
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user)
-      return sendResponse(res, 404, "لا يوجد حساب مرتبط بهذا البريد الإلكتروني");
+      return sendResponse(
+        res,
+        404,
+        "لا يوجد حساب مرتبط بهذا البريد الإلكتروني",
+      );
 
     const otp = generateOtp();
     user.passwordResetOtp = {
@@ -316,12 +334,14 @@ export const savePushToken = async (req, res) => {
   try {
     const { expoPushToken } = req.body;
     if (!expoPushToken) {
-      return res.status(400).json({ success: false, message: "رمز الإشعار مطلوب" });
+      return res.status(400).json({ success: false });
     }
 
     const user = await User.findById(req.user._id);
     if (!user) {
-      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+      return res
+        .status(404)
+        .json({ success: false, message: "المستخدم غير موجود" });
     }
 
     if (!user.tokens.includes(expoPushToken)) {
@@ -329,7 +349,7 @@ export const savePushToken = async (req, res) => {
       await user.save();
     }
 
-    res.status(200).json({ success: true, message: "تم حفظ رمز الإشعار بنجاح" });
+    res.status(200).json({ success: true });
   } catch (error) {
     console.error("Save Push Token Error:", error);
     res.status(500).json({ success: false, message: "حدث خطأ في الخادم" });
