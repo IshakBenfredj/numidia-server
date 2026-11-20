@@ -9,6 +9,8 @@ import {
   getUsersByType,
   updateTraderProfile,
   changeTraderPassword,
+  updateUserKycStatus,
+  submitKycDocuments,
 } from "../controllers/userController.js";
 import { admin, protect } from "../middlewares/authMiddleware.js";
 
@@ -23,5 +25,7 @@ router.get("/:id", protect, getUserById);
 router.delete("/:id", protect, admin, deleteUser);
 router.put("/me", protect, updateTraderProfile);
 router.put("/me/password", protect, changeTraderPassword);
+router.put("/me/kyc", protect, submitKycDocuments);
+router.put("/:id/kyc-status", protect, admin, updateUserKycStatus);
 
 export default router;

@@ -75,12 +75,21 @@ export const createOrder = async (req, res) => {
           });
         }
 
-        originalTotal += quantity * product.price;
+        let effectivePrice = product.price;
+        if (product.wholesaleTiers && Array.isArray(product.wholesaleTiers) && product.wholesaleTiers.length > 0) {
+          const sortedTiers = [...product.wholesaleTiers].sort((a, b) => b.minQty - a.minQty);
+          const matchedTier = sortedTiers.find((t) => quantity >= t.minQty);
+          if (matchedTier && matchedTier.price < effectivePrice) {
+            effectivePrice = matchedTier.price;
+          }
+        }
+
+        originalTotal += quantity * effectivePrice;
 
         return {
           product: productId,
           quantity,
-          priceAtOrder: product.price,
+          priceAtOrder: effectivePrice,
         };
       }),
     );
@@ -504,15 +513,6 @@ export const deleteOrder = async (req, res) => {
       });
     }
 
-    // Restore inventory
-    await Promise.all(
-      order.products.map(async (item) => {
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { quantity: item.quantity },
-        });
-      }),
-    );
-
     // Unlink reports if any
     if (order.linkedReports && order.linkedReports.length > 0) {
       await Report.updateMany(
@@ -525,7 +525,7 @@ export const deleteOrder = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "تم حذف الطلب بنجاح واستعادة المخزون وإعادة ربط البلاغات",
+      message: "تم حذف الطلب بنجاح وإعادة ربط البلاغات",
     });
   } catch (error) {
     console.error("خطأ في حذف الطلب:", error);

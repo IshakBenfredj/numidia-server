@@ -90,6 +90,35 @@ const UserSchema = new Schema(
       code: { type: String, select: false },
       expiresAt: { type: Date, select: false },
     },
+    // KYC Verification (توثيق الحسابات)
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    kycStatus: {
+      type: String,
+      enum: ["unverified", "pending", "verified", "rejected"],
+      default: "unverified",
+    },
+    commercialRegister: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    taxId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    identityCardImage: {
+      type: String,
+      default: null,
+    },
+    kycNotes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     tokens: {
       type: [String],
       default: [],

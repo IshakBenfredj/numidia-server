@@ -52,51 +52,23 @@ setInterval(
   15 * 60 * 1000,
 );
 
-// ─── SEND REGISTER OTP ───────────────────────────────────────
+// ─── SEND REGISTER OTP (DISABLED) ────────────────────────────
 export const sendRegisterOtp = async (req, res) => {
-  try {
-    const { phone, email } = req.body;
-
-    if (!phone || !email)
-      return sendResponse(res, 400, "رقم الهاتف والبريد الإلكتروني مطلوبان");
-
-    const cleanPhone = phone.trim().replace(/[^\d+]/g, "");
-    if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone))
-      return sendResponse(
-        res,
-        400,
-        "رقم الهاتف يجب أن يكون رقم جوال جزائري صالح",
-      );
-
-    if (await User.findOne({ phone: cleanPhone }))
-      return sendResponse(res, 409, "رقم الهاتف مسجل مسبقًا");
-
-    if (await User.findOne({ email: email.toLowerCase() }))
-      return sendResponse(res, 409, "البريد الإلكتروني مسجل مسبقًا");
-
-    const otp = generateOtp();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-
-    pendingOtps.set(email.toLowerCase(), { otp, expiresAt, phone: cleanPhone });
-
-    await sendVerificationEmail(email, otp);
-    sendResponse(res, 200, "تم إرسال كود التحقق إلى بريدك الإلكتروني");
-  } catch (error) {
-    console.error("Send Register OTP Error:", error);
-    sendResponse(res, 500, "حدث خطأ في الخادم");
-  }
+  return sendResponse(
+    res,
+    200,
+    "تم إيقاف التحقق عبر البريد الإلكتروني، يمكنك إنشاء الحساب مباشرة",
+  );
 };
 
-// ─── REGISTER ────────────────────────────────────────────────
+// ─── REGISTER (DIRECT — NO EMAIL OR OTP REQUIRED) ────────────
 export const register = async (req, res) => {
   try {
-    const { name, phone, password, address, email, otp } = req.body;
+    const { name, phone, password, address, email } = req.body;
 
     if (!name?.trim()) return sendResponse(res, 400, "الاسم مطلوب");
     if (!phone || !password)
       return sendResponse(res, 400, "رقم الهاتف وكلمة المرور مطلوبان");
-    if (!email || !otp)
-      return sendResponse(res, 400, "البريد الإلكتروني وكود التحقق مطلوبان");
 
     const cleanPhone = phone.trim().replace(/[^\d+]/g, "");
     if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone))
@@ -109,33 +81,23 @@ export const register = async (req, res) => {
     if (password.length < 6)
       return sendResponse(res, 400, "كلمة المرور يجب أن تكون 6 أحرف على الأقل");
 
-    // ── Verify OTP ──────────────────────────────────────────
-    const pending = pendingOtps.get(email.toLowerCase());
-    if (!pending)
-      return sendResponse(
-        res,
-        400,
-        "لم يتم طلب كود تحقق لهذا البريد، أعد الإرسال",
-      );
-    if (pending.otp !== otp) return sendResponse(res, 400, "الكود غير صحيح");
-    if (new Date() > pending.expiresAt)
-      return sendResponse(res, 400, "انتهت صلاحية الكود، أعد الإرسال");
-
-    pendingOtps.delete(email.toLowerCase());
-
     // ── Final duplicate checks ───────────────────────────────
     if (await User.findOne({ phone: cleanPhone }))
       return sendResponse(res, 409, "رقم الهاتف مسجل مسبقًا");
-    if (await User.findOne({ email: email.toLowerCase() }))
-      return sendResponse(res, 409, "البريد الإلكتروني مسجل مسبقًا");
+
+    const cleanEmail = email?.trim()?.toLowerCase();
+    if (cleanEmail) {
+      if (await User.findOne({ email: cleanEmail }))
+        return sendResponse(res, 409, "البريد الإلكتروني مسجل مسبقًا");
+    }
 
     const user = await User.create({
       name: name.trim(),
       phone: cleanPhone,
       password,
-      address: address?.trim(),
-      email: email.toLowerCase(),
-      emailVerified: true, // verified via OTP before account creation
+      address: address?.trim() || "الجزائر",
+      ...(cleanEmail ? { email: cleanEmail } : {}),
+      emailVerified: true,
     });
 
     sendResponse(res, 201, "تم إنشاء الحساب بنجاح", user);

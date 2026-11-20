@@ -372,11 +372,29 @@ export const deleteProduct = async (req, res) => {
 
 export const getMyProducts = async (req, res) => {
   try {
-    const products = await Product.find({ supplier: req.user._id })
-      .sort({ createdAt: -1 })
-      .lean();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || (req.query.page ? 20 : 0);
+    const query = { supplier: req.user._id };
 
-    res.status(200).json({ success: true, products });
+    const total = await Product.countDocuments(query);
+    let productQuery = Product.find(query).sort({ createdAt: -1 });
+
+    if (limit > 0) {
+      productQuery = productQuery.skip((page - 1) * limit).limit(limit);
+    }
+
+    const products = await productQuery.lean();
+
+    res.status(200).json({
+      success: true,
+      products,
+      pagination: limit > 0 ? {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      } : undefined,
+    });
   } catch (error) {
     console.error("Get my products error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -385,9 +403,92 @@ export const getMyProducts = async (req, res) => {
 
 export const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find()
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || (req.query.page ? 20 : 0);
+    const category = req.query.category;
+    const supplier = req.query.supplier;
+    const search = req.query.search;
+
+    const query = { isActive: { $ne: false } };
+    if (category) query.category = category;
+    if (supplier) query.supplier = supplier;
+    if (search) {
+      query.name = { $regex: search, $options: "i" };
+    }
+
+    const total = await Product.countDocuments(query);
+    let productQuery = Product.find(query)
       .sort({ createdAt: -1 })
-      .populate("supplier")
+      .populate("supplier", "name phone logo businessName");
+
+    if (limit > 0) {
+      productQuery = productQuery.skip((page - 1) * limit).limit(limit);
+    }
+
+    const products = await productQuery.lean();
+
+    res.status(200).json({
+      success: true,
+      products,
+      pagination: limit > 0 ? {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      } : undefined,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getProductsBySupplier = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || (req.query.page ? 20 : 0);
+    const category = req.query.category;
+
+    const query = {
+      supplier: req.params.id,
+      isActive: { $ne: false },
+    };
+    if (category) query.category = category;
+
+    const total = await Product.countDocuments(query);
+    let productQuery = Product.find(query)
+      .sort({ createdAt: -1 })
+      .populate("supplier", "name phone logo businessName");
+
+    if (limit > 0) {
+      productQuery = productQuery.skip((page - 1) * limit).limit(limit);
+    }
+
+    const products = await productQuery.lean();
+
+    res.status(200).json({
+      success: true,
+      products,
+      pagination: limit > 0 ? {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      } : undefined,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getProductsByIds = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(200).json({ success: true, products: [] });
+    }
+
+    const products = await Product.find({ _id: { $in: ids } })
+      .populate("supplier", "name phone logo businessName")
       .lean();
 
     res.status(200).json({ success: true, products });
@@ -396,17 +497,92 @@ export const getAllProducts = async (req, res) => {
   }
 };
 
-export const getProductsBySupplier = async (req, res) => {
+export const bulkCreateProducts = async (req, res) => {
   try {
-    const products = await Product.find({
-      supplier: req.params.id,
-    })
-      .sort({ createdAt: -1 })
-      .populate("supplier")
-      .lean();
+    const { products } = req.body;
+    const supplierId = req.user._id;
 
-    res.status(200).json({ success: true, products });
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "يجب تقديم قائمة منتجات صالحة",
+      });
+    }
+
+    const formattedProducts = products.map((p) => ({
+      name: p.name,
+      price: Number(p.price) || 0,
+      oldPrice: p.oldPrice ? Number(p.oldPrice) : undefined,
+      quantity: Number(p.quantity) || 0,
+      minQuantity: Number(p.minQuantity) || 1,
+      category: p.category,
+      quality: p.quality || "standard",
+      description: p.description || "",
+      images: p.images || [],
+      supplier: supplierId,
+    }));
+
+    const inserted = await Product.insertMany(formattedProducts);
+
+    res.status(201).json({
+      success: true,
+      message: `تم إضافة ${inserted.length} منتج بنجاح`,
+      count: inserted.length,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Bulk create products error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل استيراد المنتجات",
+    });
+  }
+};
+
+export const bulkUpdatePrices = async (req, res) => {
+  try {
+    const { category, percentage, fixedAmount } = req.body;
+    const supplierId = req.user._id;
+
+    const query = { supplier: supplierId };
+    if (category && category !== "all") {
+      query.category = category;
+    }
+
+    const products = await Product.find(query);
+    if (products.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "لا توجد منتجات لتعديل أسعارها",
+      });
+    }
+
+    let updatedCount = 0;
+    for (const product of products) {
+      let newPrice = product.price;
+      if (percentage !== undefined && percentage !== 0) {
+        newPrice = Math.round(newPrice * (1 + Number(percentage) / 100));
+      }
+      if (fixedAmount !== undefined && fixedAmount !== 0) {
+        newPrice = Math.max(0, newPrice + Number(fixedAmount));
+      }
+
+      if (newPrice !== product.price) {
+        product.price = newPrice;
+        await product.save();
+        updatedCount++;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `تم تعديل أسعار ${updatedCount} منتج بنجاح`,
+      updatedCount,
+    });
+  } catch (error) {
+    console.error("Bulk update prices error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "فشل تعديل الأسعار",
+    });
   }
 };

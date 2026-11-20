@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import compression from "compression";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
@@ -12,6 +13,8 @@ import debtRoutes from "./routes/debtRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import adsRoutes from "./routes/adsRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import deliveryRoutes from "./routes/deliveryRoutes.js";
 import job from "./cron.js";
 
 dotenv.config();
@@ -19,6 +22,7 @@ dotenv.config();
 const app = express();
 
 // Middlewares
+app.use(compression());
 app.use(cors());
 app.use(helmet());
 app.use(morgan('dev'));
@@ -35,6 +39,8 @@ app.use("/api/debts", debtRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/ads", adsRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/delivery", deliveryRoutes);
 
 // MongoDB Connection
 mongoose

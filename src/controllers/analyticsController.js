@@ -31,6 +31,29 @@ export const getAdminDashboardAnalytics = async (req, res) => {
       createdAt: { $gte: today.start, $lte: today.end },
     });
 
+    // 4. New Suppliers today
+    const newSuppliersToday = await User.countDocuments({
+      role: "supplier",
+      createdAt: { $gte: today.start, $lte: today.end },
+    });
+
+    // 5. Active Traders
+    const activeTraders = await User.countDocuments({
+      role: "trader",
+      isActive: { $ne: false },
+    });
+
+    // 6. Active Suppliers
+    const activeSuppliers = await User.countDocuments({
+      role: "supplier",
+      isActive: { $ne: false },
+    });
+
+    // 7. Orders today
+    const ordersToday = await Order.countDocuments({
+      createdAt: { $gte: today.start, $lte: today.end },
+    });
+
     // 8. Total revenue today (sum of totalAmount for delivered/confirmed orders today)
     const revenueTodayResult = await Order.aggregate([
       {

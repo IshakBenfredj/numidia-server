@@ -945,3 +945,73 @@ export const changeTraderPassword = async (req, res) => {
     });
   }
 };
+
+// PUT /api/users/:id/kyc-status (Admin only)
+export const updateUserKycStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { kycStatus, isVerified, commissionRate, kycNotes } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+      });
+    }
+
+    if (kycStatus) user.kycStatus = kycStatus;
+    if (typeof isVerified === "boolean") user.isVerified = isVerified;
+    if (typeof commissionRate === "number") user.commissionRate = commissionRate;
+    if (typeof kycNotes === "string") user.kycNotes = kycNotes;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "تم تحديث حالة توثيق الحساب بنجاح",
+      data: user,
+    });
+  } catch (error) {
+    console.error("Update KYC Status Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تحديث حالة التوثيق",
+    });
+  }
+};
+
+// PUT /api/users/me/kyc (User submits KYC documents)
+export const submitKycDocuments = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { commercialRegister, taxId, identityCardImage } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+      });
+    }
+
+    if (commercialRegister) user.commercialRegister = commercialRegister;
+    if (taxId) user.taxId = taxId;
+    if (identityCardImage) user.identityCardImage = identityCardImage;
+    user.kycStatus = "pending";
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "تم تقديم وثائق التوثيق بنجاح وهي قيد مراجعة الإدارة",
+      data: user,
+    });
+  } catch (error) {
+    console.error("Submit KYC Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تقديم وثائق التوثيق",
+    });
+  }
+};

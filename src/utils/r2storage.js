@@ -9,6 +9,7 @@ DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 
 dotenv.config();
+
 const s3 = new S3Client({
   region: "auto",
   endpoint: process.env.R2_ENDPOINT,
@@ -55,6 +56,7 @@ const uploadFile = async (
       Key: key,
       Body: buffer,
       ContentType: mimeType,
+      CacheControl: "public, max-age=31536000, immutable",
     })
   );
 

@@ -53,6 +53,17 @@ const ProductSchema = new Schema(
       maxlength: [1000, "الوصف طويل جداً (حد أقصى 1000 حرف)"],
       default: "",
     },
+    quality: {
+      type: String,
+      enum: ["original", "oled", "incell", "tft", "high_copy", "standard"],
+      default: "standard",
+    },
+    wholesaleTiers: [
+      {
+        minQty: { type: Number, required: true },
+        price: { type: Number, required: true },
+      },
+    ],
     supplier: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -67,5 +78,9 @@ const ProductSchema = new Schema(
     timestamps: true,
   }
 );
+
+ProductSchema.index({ supplier: 1, category: 1 });
+ProductSchema.index({ createdAt: -1 });
+ProductSchema.index({ isActive: 1 });
 
 export default models.Product || model("Product", ProductSchema);
