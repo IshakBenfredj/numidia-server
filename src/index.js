@@ -15,6 +15,7 @@ import adsRoutes from "./routes/adsRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import deliveryRoutes from "./routes/deliveryRoutes.js";
+import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import job from "./cron.js";
 
 dotenv.config();
@@ -41,6 +42,7 @@ app.use("/api/ads", adsRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/delivery", deliveryRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 
 // MongoDB Connection
 mongoose

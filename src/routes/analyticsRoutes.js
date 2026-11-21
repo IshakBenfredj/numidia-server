@@ -5,11 +5,15 @@ import {
   getPendingReportsCount,
   getNewUsersToday,
   getDashboardAnalyticsTabs,
+  getPopularCategories,
 } from "../controllers/analyticsController.js";
 
 import { protect, admin } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
+
+// Public algorithm-based popular categories
+router.get("/popular-categories", getPopularCategories);
 
 // Main dashboard endpoint (recommended - one call gets everything)
 router.get("/dashboard", protect, admin, getAdminDashboardAnalytics);

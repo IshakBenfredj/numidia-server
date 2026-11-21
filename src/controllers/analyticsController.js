@@ -1,5 +1,8 @@
 import Order from "../models/Order.js";
+import Product from "../models/Product.js";
 import Report from "../models/Report.js";
+import SubscriptionRequest from "../models/SubscriptionRequest.js";
+import Ads from "../models/Ads.js";
 import User from "../models/User.js";
 import moment from "moment-timezone";
 
@@ -114,24 +117,34 @@ export const getDashboardAnalyticsTabs = async (req, res) => {
       queryOrder = { status: "pending" };
       queryReport = { status: "pending" };
     } else if (role === "supplier") {
-      queryOrder = { status: "confirmed", supplier: userId };
-      queryReport = { status: "approved", supplier: userId };
+      queryOrder = { status: "pending", supplier: userId };
+      queryReport = { status: "pending", supplier: userId };
     }
-    // else → leave empty → will count 0 (or you can throw 403)
 
     const today = getTodayRange();
 
-    const [pendingOrdersCount, pendingReportsCount, newTradersToday] =
-      await Promise.all([
-        Order.countDocuments(queryOrder),
-        Report.countDocuments(queryReport),
-        role === "admin"
-          ? User.countDocuments({
-              role: "trader",
-              createdAt: { $gte: today.start, $lte: today.end },
-            })
-          : 0,
-      ]);
+    const [
+      pendingOrdersCount,
+      pendingReportsCount,
+      newTradersToday,
+      pendingSubscriptionsCount,
+      pendingAdsCount,
+    ] = await Promise.all([
+      Order.countDocuments(queryOrder),
+      Report.countDocuments(queryReport),
+      role === "admin"
+        ? User.countDocuments({
+            role: "trader",
+            createdAt: { $gte: today.start, $lte: today.end },
+          })
+        : 0,
+      role === "admin"
+        ? SubscriptionRequest.countDocuments({ status: "pending" })
+        : 0,
+      role === "admin"
+        ? Ads.countDocuments({ approvalStatus: "pending" })
+        : 0,
+    ]);
 
     res.status(200).json({
       success: true,
@@ -139,6 +152,8 @@ export const getDashboardAnalyticsTabs = async (req, res) => {
         pendingOrders: pendingOrdersCount,
         pendingReports: pendingReportsCount,
         newTradersToday,
+        pendingSubscriptions: pendingSubscriptionsCount,
+        pendingAds: pendingAdsCount,
       },
     });
   } catch (error) {
@@ -187,5 +202,91 @@ export const getNewUsersToday = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Public algorithm-based popular categories (ranked by real order demand + active supply)
+export const getPopularCategories = async (req, res) => {
+  try {
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit) || 8));
+
+    const [orderDemand, productSupply] = await Promise.all([
+      Order.aggregate([
+        { $match: { status: { $ne: "cancelled" } } },
+        { $unwind: "$products" },
+        {
+          $lookup: {
+            from: "products",
+            localField: "products.product",
+            foreignField: "_id",
+            as: "prod",
+          },
+        },
+        { $unwind: "$prod" },
+        { $match: { "prod.category": { $exists: true, $ne: "" } } },
+        {
+          $group: {
+            _id: "$prod.category",
+            orderCount: { $sum: 1 },
+            totalQuantity: { $sum: "$products.quantity" },
+          },
+        },
+      ]),
+      Product.aggregate([
+        {
+          $match: {
+            isActive: { $ne: false },
+            category: { $exists: true, $ne: "" },
+          },
+        },
+        {
+          $group: {
+            _id: "$category",
+            productCount: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    const scoreMap = new Map();
+    for (const p of productSupply) {
+      scoreMap.set(p._id, {
+        categoryId: p._id,
+        orderCount: 0,
+        totalQuantity: 0,
+        productCount: p.productCount || 0,
+        score: (p.productCount || 0) * 1.5,
+      });
+    }
+
+    for (const o of orderDemand) {
+      const existing = scoreMap.get(o._id) || {
+        categoryId: o._id,
+        orderCount: 0,
+        totalQuantity: 0,
+        productCount: 0,
+        score: 0,
+      };
+      existing.orderCount = o.orderCount || 0;
+      existing.totalQuantity = o.totalQuantity || 0;
+      // Weight real order demand heavily above catalog count
+      existing.score += existing.orderCount * 10 + existing.totalQuantity * 2;
+      scoreMap.set(o._id, existing);
+    }
+
+    const ranked = Array.from(scoreMap.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    res.status(200).json({
+      success: true,
+      data: ranked,
+    });
+  } catch (error) {
+    console.error("Popular Categories Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "فشل حساب الفئات الأكثر طلباً",
+    });
   }
 };

@@ -26,8 +26,13 @@ const sendResponse = (res, statusCode, message, user = null, token = true) => {
         isActive: user.isActive,
         logo: user.logo || null,
         businessName: user.businessName || null,
-        commissionRate: user.commissionRate || null,
+        commissionRate: user.commissionRate || 0,
         type: user.type || null,
+        subscriptionStatus: user.subscriptionStatus || "trial",
+        subscriptionPlan: user.subscriptionPlan || "trial",
+        trialEndsAt: user.trialEndsAt || null,
+        subscriptionStartDate: user.subscriptionStartDate || null,
+        subscriptionEndDate: user.subscriptionEndDate || null,
       },
       ...(token && { token: generateToken(user._id) }),
     };
@@ -291,11 +296,12 @@ export const getMe = async (req, res) => {
   }
 };
 
-// ─── SAVE PUSH TOKEN ──────────────────────────────────────────
+// ─── SAVE PUSH TOKEN (Supports both Expo & Flutter FCM tokens) ───
 export const savePushToken = async (req, res) => {
   try {
-    const { expoPushToken } = req.body;
-    if (!expoPushToken) {
+    const pushToken =
+      req.body.expoPushToken || req.body.fcmToken || req.body.token;
+    if (!pushToken || typeof pushToken !== "string") {
       return res.status(400).json({ success: false });
     }
 
@@ -306,8 +312,8 @@ export const savePushToken = async (req, res) => {
         .json({ success: false, message: "المستخدم غير موجود" });
     }
 
-    if (!user.tokens.includes(expoPushToken)) {
-      user.tokens.push(expoPushToken);
+    if (!user.tokens.includes(pushToken)) {
+      user.tokens.push(pushToken);
       await user.save();
     }
 

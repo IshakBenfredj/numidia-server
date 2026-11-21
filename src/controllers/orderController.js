@@ -142,27 +142,24 @@ export const createOrder = async (req, res) => {
       await report.save();
     }
 
-    // Send push notification to Admins
+    // Send push notification directly to the Supplier (suppliers manage their own orders)
     try {
-      const admins = await User.find({ role: "admin" }).select("tokens");
-      const adminTokens = admins.reduce((acc, adminUser) => {
-        if (adminUser.tokens && adminUser.tokens.length > 0) {
-          acc.push(...adminUser.tokens);
-        }
-        return acc;
-      }, []);
+      const supplierUser = await User.findById(supplier).select("tokens").lean();
+      const supplierTokens = Array.isArray(supplierUser?.tokens)
+        ? supplierUser.tokens.filter(Boolean)
+        : [];
 
-      if (adminTokens.length > 0) {
-        const traderName = req.user.name || "مستخدم";
+      if (supplierTokens.length > 0) {
+        const traderName = req.user.name || "تاجر";
         sendPushNotification(
-          adminTokens,
-          "طلب جديد 📦",
+          supplierTokens,
+          "طلب جديد",
           `قام ${traderName} بإنشاء طلب جديد بقيمة ${originalTotal} دج.`,
-          { orderId: order._id.toString(), type: "NEW_ORDER" }
+          { orderId: order._id.toString(), type: "NEW_ORDER" },
         );
       }
     } catch (pushError) {
-      console.error("Error sending push notification to admins:", pushError);
+      console.error("Error sending push notification to supplier:", pushError);
     }
 
     res.status(201).json({
@@ -183,18 +180,27 @@ export const confirmOrder = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (req.user.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "غير مصرح - فقط الإدارة يمكنها تأكيد الطلبات",
-      });
-    }
-
-    const order = await Order.findById(id).populate("supplier");
+    const order = await Order.findById(id)
+      .populate("supplier")
+      .populate("trader", "name tokens");
     if (!order) {
       return res.status(404).json({
         success: false,
         message: "الطلب غير موجود",
+      });
+    }
+
+    const orderSupplierId = (
+      order.supplier?._id || order.supplier || ""
+    ).toString();
+    const isOrderSupplier =
+      req.user.role === "supplier" &&
+      orderSupplierId === req.user._id.toString();
+
+    if (!isOrderSupplier && req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح - فقط المورد صاحب الطلب يمكنه تأكيده",
       });
     }
 
@@ -225,43 +231,25 @@ export const confirmOrder = async (req, res) => {
     );
 
     order.status = "confirmed";
-
-    let debt = await Debt.findOne({
-      supplier: order.supplier._id,
-      isPaid: false,
-    });
-
-    const effectiveTotal =
-      order.deductedRetour > 0
-        ? order.totalAmount - order.deductedRetour
-        : order.totalAmount;
-
-    if (!debt) {
-      debt = await Debt.create({
-        supplier: order.supplier._id,
-        totalAmount: effectiveTotal * Number(order.supplier.commissionRate),
-      });
-    } else {
-      debt.totalAmount +=
-        effectiveTotal * Number(order.supplier.commissionRate);
-      await debt.save();
-    }
-
-    order.debt = debt ? debt._id : null;
     await order.save();
 
-    // Send push notification to Supplier
+    // Send push notification to Trader
     try {
-      if (order.supplier && order.supplier.tokens && order.supplier.tokens.length > 0) {
+      const traderTokens = Array.isArray(order.trader?.tokens)
+        ? order.trader.tokens.filter(Boolean)
+        : [];
+      if (traderTokens.length > 0) {
+        const supName =
+          order.supplier?.businessName || order.supplier?.name || "المورد";
         sendPushNotification(
-          order.supplier.tokens,
-          "طلب جديد مؤكد 🚚",
-          "تم تأكيد الطلب من قبل الإدارة. يرجى البدء في تجهيز المنتجات.",
-          { orderId: order._id.toString(), type: "CONFIRM_ORDER" }
+          traderTokens,
+          "تم تأكيد طلبك",
+          `قام ${supName} بتأكيد طلبك وهو قيد التجهيز الآن.`,
+          { orderId: order._id.toString(), type: "CONFIRM_ORDER" },
         );
       }
     } catch (pushError) {
-      console.error("Error sending push notification to supplier:", pushError);
+      console.error("Error sending push notification to trader:", pushError);
     }
 
     res.status(200).json({
@@ -555,12 +543,28 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    const order = await Order.findById(id).populate("supplier");
+    const order = await Order.findById(id)
+      .populate("supplier")
+      .populate("trader", "name tokens");
 
     if (!order) {
       return res.status(404).json({
         success: false,
         message: "الطلب غير موجود",
+      });
+    }
+
+    const orderSupplierId = (
+      order.supplier?._id || order.supplier || ""
+    ).toString();
+    const isOrderSupplier =
+      req.user.role === "supplier" &&
+      orderSupplierId === req.user._id.toString();
+
+    if (!isOrderSupplier && req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح - فقط المورد صاحب الطلب يمكنه تحديث حالته",
       });
     }
 
@@ -574,12 +578,6 @@ export const updateOrderStatus = async (req, res) => {
             $inc: { quantity: -item.quantity },
           });
         }
-
-        const debt = await Debt.findById(order.debt);
-        if (debt) {
-          debt.totalAmount += order.totalAmount * order.supplier.commissionRate;
-          await debt.save();
-        }
       }
     }
 
@@ -589,12 +587,6 @@ export const updateOrderStatus = async (req, res) => {
           await Product.findByIdAndUpdate(item.product, {
             $inc: { quantity: item.quantity },
           });
-        }
-
-        const debt = await Debt.findById(order.debt);
-        if (debt) {
-          debt.totalAmount -= order.totalAmount * order.supplier.commissionRate;
-          await debt.save();
         }
 
         // Unlink reports if cancelled or retour
@@ -607,9 +599,35 @@ export const updateOrderStatus = async (req, res) => {
 
     const orderUpdated = await order.save();
 
+    // Notify trader about status change
+    try {
+      const traderTokens = Array.isArray(order.trader?.tokens)
+        ? order.trader.tokens.filter(Boolean)
+        : [];
+      if (traderTokens.length > 0 && previousStatus !== status) {
+        const statusArMap = {
+          confirmed: "مؤكد",
+          shipped: "تم الشحن",
+          delivered: "تم التسليم",
+          cancelled: "ملغي",
+          retour: "مسترجع",
+        };
+        const supName =
+          order.supplier?.businessName || order.supplier?.name || "المورد";
+        sendPushNotification(
+          traderTokens,
+          "تحديث حالة الطلب",
+          `قام ${supName} بتحديث حالة طلبك إلى: ${statusArMap[status] || status}.`,
+          { orderId: order._id.toString(), status, type: "ORDER_STATUS" },
+        );
+      }
+    } catch (pushErr) {
+      console.error("Order status push error:", pushErr);
+    }
+
     res.status(200).json({
       success: true,
-      message: `تم تغيير حالة الطلب إلى ${status}`,
+      message: "تم تحديث حالة الطلب بنجاح",
       order: orderUpdated,
     });
   } catch (error) {

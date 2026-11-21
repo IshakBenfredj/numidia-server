@@ -17,7 +17,7 @@ export const broadcastNotification = async (req, res) => {
       });
     }
 
-    let query = { isActive: true };
+    const query = { isActive: { $ne: false } };
     if (targetGroup === "traders") {
       query.role = "trader";
     } else if (targetGroup === "suppliers") {

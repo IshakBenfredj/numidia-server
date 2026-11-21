@@ -17,7 +17,7 @@ const router = express.Router();
 
 router.post("/", protect, createOrder);
 
-router.put("/:id/confirm", protect, admin, confirmOrder);
+router.put("/:id/confirm", protect, confirmOrder);
 
 router.get("/supplier", protect, getSupplierOrders);
 

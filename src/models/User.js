@@ -46,10 +46,30 @@ const UserSchema = new Schema(
     },
     commissionRate: {
       type: Number,
-      default: 0.05,
-      required: function () {
-        return this.role === "supplier";
-      },
+      default: 0,
+    },
+    // Subscription System (نظام الاشتراكات الشهري / السنوي مع تجربة مجانية)
+    subscriptionStatus: {
+      type: String,
+      enum: ["trial", "active", "expired"],
+      default: "trial",
+    },
+    subscriptionPlan: {
+      type: String,
+      enum: ["trial", "monthly", "yearly", "custom"],
+      default: "trial",
+    },
+    trialEndsAt: {
+      type: Date,
+      default: null,
+    },
+    subscriptionStartDate: {
+      type: Date,
+      default: null,
+    },
+    subscriptionEndDate: {
+      type: Date,
+      default: null,
     },
 
     role: {
