@@ -223,6 +223,7 @@ import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { deleteFileByUrl, uploadSingleImage } from "../utils/r2storage.js";
 import Report from "../models/Report.js";
+import { getVisibleSupplierIds } from "./subscriptionController.js";
 
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
@@ -763,13 +764,21 @@ export const getUsersByType = async (req, res) => {
     }
 
     // Step 1: Find active suppliers of this type
-    const suppliers = await User.find({
+    let suppliers = await User.find({
       role: "supplier",
       type,
       isActive: true,
     })
       .sort({ createdAt: -1 })
       .lean();
+
+    // Hide unsubscribed / expired suppliers from Traders & Guests when subscriptions are enabled
+    if (req.user?.role !== "admin") {
+      const { allowedSupplierIdSet } = await getVisibleSupplierIds();
+      suppliers = suppliers.filter((s) =>
+        allowedSupplierIdSet.has(s._id.toString()),
+      );
+    }
 
     // Step 2: Get product count for each supplier (efficient with aggregation)
     const supplierIds = suppliers.map((s) => s._id);

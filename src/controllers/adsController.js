@@ -5,7 +5,10 @@ import Notification from "../models/Notification.js";
 import mongoose from "mongoose";
 import { deleteFileByUrl, uploadSingleImage } from "../utils/r2storage.js";
 import { sendPushNotification } from "../utils/pushNotifications.js";
-import { getOrCreateSettings } from "./subscriptionController.js";
+import {
+  getOrCreateSettings,
+  getVisibleSupplierIds,
+} from "./subscriptionController.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -1006,10 +1009,38 @@ export const getActiveAds = async (req, res) => {
       .populate("targetSupplier", "name businessName logo type")
       .lean();
 
+    // Hide ads linked to unsubscribed/expired suppliers when subscriptions are enabled
+    const { subscriptionsEnabled, allowedSupplierIdSet } =
+      await getVisibleSupplierIds();
+    const visibleAds = subscriptionsEnabled
+      ? ads.filter((ad) => {
+          const adSupplierId = ad.supplier?.toString();
+          if (adSupplierId && !allowedSupplierIdSet.has(adSupplierId)) {
+            return false;
+          }
+          const targetSupplierId = (
+            ad.targetSupplier?._id || ad.targetSupplier
+          )?.toString();
+          if (targetSupplierId && !allowedSupplierIdSet.has(targetSupplierId)) {
+            return false;
+          }
+          const targetProductSupplierId = (
+            ad.targetProduct?.supplier?._id || ad.targetProduct?.supplier
+          )?.toString();
+          if (
+            targetProductSupplierId &&
+            !allowedSupplierIdSet.has(targetProductSupplierId)
+          ) {
+            return false;
+          }
+          return true;
+        })
+      : ads;
+
     res.status(200).json({
       success: true,
-      count: ads.length,
-      ads,
+      count: visibleAds.length,
+      ads: visibleAds,
     });
   } catch (error) {
     res.status(500).json({

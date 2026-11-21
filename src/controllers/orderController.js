@@ -5,6 +5,10 @@ import User from "../models/User.js";
 import Report from "../models/Report.js";
 import mongoose from "mongoose";
 import { sendPushNotification } from "../utils/pushNotifications.js";
+import {
+  computeSupplierSubscriptionState,
+  getOrCreateSettings,
+} from "./subscriptionController.js";
 
 export const createOrder = async (req, res) => {
   try {
@@ -112,6 +116,32 @@ export const createOrder = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "تعذر تحديد المورد الخاص بهذه المنتجات",
+      });
+    }
+
+    // Block ordering from deactivated or unsubscribed/expired suppliers when subscriptions are enabled
+    const [supplierDoc, subSettings] = await Promise.all([
+      User.findById(inferredSupplierId)
+        .select(
+          "role isActive createdAt trialEndsAt subscriptionEndDate subscriptionPlan",
+        )
+        .lean(),
+      getOrCreateSettings(),
+    ]);
+    if (!supplierDoc || supplierDoc.role !== "supplier" || supplierDoc.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: "عذراً، متجر هذا المورد غير متاح حالياً لاستقبال الطلبيات",
+      });
+    }
+    const supplierSubState = computeSupplierSubscriptionState(
+      supplierDoc,
+      subSettings,
+    );
+    if (!supplierSubState.hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "عذراً، متجر هذا المورد غير متاح حالياً لاستقبال الطلبيات",
       });
     }
     const resolvedSupplier = inferredSupplierId;

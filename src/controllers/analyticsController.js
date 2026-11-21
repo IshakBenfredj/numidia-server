@@ -5,6 +5,7 @@ import SubscriptionRequest from "../models/SubscriptionRequest.js";
 import Ads from "../models/Ads.js";
 import User from "../models/User.js";
 import moment from "moment-timezone";
+import { getVisibleSupplierIds } from "./subscriptionController.js";
 
 // Helper to get start/end of today in your timezone (Algeria = UTC+1)
 const getTodayRange = () => {
@@ -212,10 +213,16 @@ export const getNewUsersToday = async (req, res) => {
 export const getPopularCategories = async (req, res) => {
   try {
     const limit = Math.min(20, Math.max(1, parseInt(req.query.limit) || 8));
+    const { allowedSupplierIds } = await getVisibleSupplierIds();
 
     const [orderDemand, productSupply] = await Promise.all([
       Order.aggregate([
-        { $match: { status: { $ne: "cancelled" } } },
+        {
+          $match: {
+            status: { $ne: "cancelled" },
+            supplier: { $in: allowedSupplierIds },
+          },
+        },
         { $unwind: "$products" },
         {
           $lookup: {
@@ -239,6 +246,7 @@ export const getPopularCategories = async (req, res) => {
         {
           $match: {
             isActive: { $ne: false },
+            supplier: { $in: allowedSupplierIds },
             category: { $exists: true, $ne: "" },
           },
         },

@@ -86,6 +86,39 @@ export function computeSupplierSubscriptionState(user, settings) {
   };
 }
 
+/**
+ * Returns the list & Set of supplier ObjectIds that are currently visible to Traders/Guests.
+ * - Always excludes deactivated suppliers (isActive === false).
+ * - When Admin has enabled subscriptions (subscriptionsEnabled === true),
+ *   excludes any supplier whose subscription/trial is expired (hasAccess === false).
+ */
+export async function getVisibleSupplierIds() {
+  const settings = await getOrCreateSettings();
+  const suppliers = await User.find({
+    role: "supplier",
+    isActive: { $ne: false },
+  })
+    .select("_id createdAt trialEndsAt subscriptionEndDate subscriptionPlan")
+    .lean();
+
+  if (!settings?.subscriptionsEnabled) {
+    return {
+      subscriptionsEnabled: false,
+      allowedSupplierIds: suppliers.map((s) => s._id),
+      allowedSupplierIdSet: new Set(suppliers.map((s) => s._id.toString())),
+    };
+  }
+
+  const visible = suppliers.filter(
+    (s) => computeSupplierSubscriptionState(s, settings).hasAccess,
+  );
+  return {
+    subscriptionsEnabled: true,
+    allowedSupplierIds: visible.map((s) => s._id),
+    allowedSupplierIdSet: new Set(visible.map((s) => s._id.toString())),
+  };
+}
+
 // GET /api/subscriptions/settings
 export const getSubscriptionSettings = async (req, res) => {
   try {

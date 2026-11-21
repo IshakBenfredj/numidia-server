@@ -299,27 +299,61 @@ export const getMe = async (req, res) => {
 // ─── SAVE PUSH TOKEN (Supports both Expo & Flutter FCM tokens) ───
 export const savePushToken = async (req, res) => {
   try {
-    const pushToken =
-      req.body.expoPushToken || req.body.fcmToken || req.body.token;
-    if (!pushToken || typeof pushToken !== "string") {
+    const pushToken = (
+      req.body.expoPushToken ||
+      req.body.fcmToken ||
+      req.body.token ||
+      ""
+    ).trim();
+    if (!pushToken) {
       return res.status(400).json({ success: false });
     }
 
-    const user = await User.findById(req.user._id);
-    if (!user) {
+    // Detach this device token from any other account (prevents cross-account notifications on account switch)
+    await User.updateMany(
+      { _id: { $ne: req.user._id }, tokens: pushToken },
+      { $pull: { tokens: pushToken } },
+    );
+
+    const updated = await User.findByIdAndUpdate(
+      req.user._id,
+      { $addToSet: { tokens: pushToken } },
+      { new: true },
+    ).select("_id");
+
+    if (!updated) {
       return res
         .status(404)
         .json({ success: false, message: "المستخدم غير موجود" });
     }
 
-    if (!user.tokens.includes(pushToken)) {
-      user.tokens.push(pushToken);
-      await user.save();
-    }
-
     res.status(200).json({ success: true });
   } catch (error) {
     console.error("Save Push Token Error:", error);
+    res.status(500).json({ success: false, message: "حدث خطأ في الخادم" });
+  }
+};
+
+// ─── REMOVE PUSH TOKEN ON LOGOUT ────────────────────────────────
+export const removePushToken = async (req, res) => {
+  try {
+    const pushToken = (
+      req.body.fcmToken ||
+      req.body.expoPushToken ||
+      req.body.token ||
+      ""
+    ).trim();
+    if (!pushToken) {
+      return res.status(200).json({ success: true });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      $pull: { tokens: pushToken },
+    });
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Remove Push Token Error:", error);
     res.status(500).json({ success: false, message: "حدث خطأ في الخادم" });
   }
 };

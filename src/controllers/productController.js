@@ -188,6 +188,7 @@
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import { deleteFileByUrl, uploadMultipleImages } from "../utils/r2storage.js";
+import { getVisibleSupplierIds } from "./subscriptionController.js";
 
 const ALLOWED_QUALITIES = [
   "original",
@@ -541,7 +542,30 @@ export const getAllProducts = async (req, res) => {
     if (category) {
       query.$or = [{ category }, { categories: category }];
     }
-    if (supplier) query.supplier = supplier;
+
+    // Hide products of unsubscribed / expired suppliers from Traders & Guests
+    if (req.user?.role !== "admin") {
+      const { allowedSupplierIds, allowedSupplierIdSet } =
+        await getVisibleSupplierIds();
+      if (supplier) {
+        if (!allowedSupplierIdSet.has(String(supplier))) {
+          return res.status(200).json({
+            success: true,
+            products: [],
+            pagination:
+              limit > 0
+                ? { total: 0, page, pages: 0, hasMore: false }
+                : undefined,
+          });
+        }
+        query.supplier = supplier;
+      } else {
+        query.supplier = { $in: allowedSupplierIds };
+      }
+    } else if (supplier) {
+      query.supplier = supplier;
+    }
+
     if (search) {
       query.name = { $regex: search, $options: "i" };
     }
@@ -577,6 +601,25 @@ export const getProductsBySupplier = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || (req.query.page ? 20 : 0);
     const category = req.query.category;
+
+    const isAdmin = req.user?.role === "admin";
+    const isSelfSupplier =
+      req.user?.role === "supplier" &&
+      req.user?._id?.toString() === String(req.params.id);
+
+    if (!isAdmin && !isSelfSupplier) {
+      const { allowedSupplierIdSet } = await getVisibleSupplierIds();
+      if (!allowedSupplierIdSet.has(String(req.params.id))) {
+        return res.status(200).json({
+          success: true,
+          products: [],
+          pagination:
+            limit > 0
+              ? { total: 0, page, pages: 0, hasMore: false }
+              : undefined,
+        });
+      }
+    }
 
     const query = {
       supplier: req.params.id,
@@ -619,7 +662,14 @@ export const getProductsByIds = async (req, res) => {
       return res.status(200).json({ success: true, products: [] });
     }
 
-    const products = await Product.find({ _id: { $in: ids } })
+    const query = { _id: { $in: ids } };
+    if (req.user?.role !== "admin") {
+      const { allowedSupplierIds } = await getVisibleSupplierIds();
+      query.isActive = { $ne: false };
+      query.supplier = { $in: allowedSupplierIds };
+    }
+
+    const products = await Product.find(query)
       .populate("supplier", "name phone logo businessName")
       .lean();
 

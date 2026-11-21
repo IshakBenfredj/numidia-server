@@ -1,6 +1,9 @@
 import User from "../models/User.js";
 import Notification from "../models/Notification.js";
-import { sendPushNotification } from "../utils/pushNotifications.js";
+import {
+  getPushConfigurationStatus,
+  sendPushNotification,
+} from "../utils/pushNotifications.js";
 
 /**
  * POST /api/notifications/broadcast
@@ -58,13 +61,17 @@ export const broadcastNotification = async (req, res) => {
 
     const msg = pushResult?.fcmSkipped
       ? "تم حفظ الإشعار، لكن مفتاح FIREBASE_SERVICE_ACCOUNT غير مضاف في إعدادات سيرفر Render لإشعارات Flutter"
-      : `تم إرسال الإشعار بنجاح إلى ${allTokens.length} جهاز`;
+      : pushResult?.fcmError
+        ? `تم حفظ الإشعار، لكن حدث خطأ في إرسال إشعارات Flutter: ${pushResult.fcmError}`
+        : `تم إرسال الإشعار بنجاح إلى ${allTokens.length} جهاز`;
 
     return res.status(200).json({
       success: true,
       message: msg,
       notification: notificationLog,
       fcmSkipped: Boolean(pushResult?.fcmSkipped),
+      fcmResult: pushResult?.fcm || null,
+      fcmError: pushResult?.fcmError || null,
     });
   } catch (error) {
     console.error("Broadcast Notification Error:", error);
@@ -72,6 +79,25 @@ export const broadcastNotification = async (req, res) => {
       success: false,
       message: "حدث خطأ أثناء إرسال الإشعار",
       error: error.message,
+    });
+  }
+};
+
+/**
+ * GET /api/notifications/status
+ * Check Firebase FCM push readiness (no secrets exposed)
+ */
+export const getPushStatus = async (req, res) => {
+  try {
+    const status = getPushConfigurationStatus();
+    return res.status(200).json({
+      success: true,
+      ...status,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };

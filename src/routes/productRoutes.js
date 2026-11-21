@@ -10,11 +10,11 @@ import {
   bulkCreateProducts,
   bulkUpdatePrices,
 } from "../controllers/productController.js";
-import { protect } from "../middlewares/authMiddleware.js";
+import { optionalProtect, protect } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
-router.get("/all", getAllProducts);
-router.post("/by-ids", getProductsByIds);
+router.get("/all", optionalProtect, getAllProducts);
+router.post("/by-ids", optionalProtect, getProductsByIds);
 router.get("/", protect, getMyProducts);
 router.get("/supplier/:id", protect, getProductsBySupplier);
 router.post("/", protect, createProduct);
