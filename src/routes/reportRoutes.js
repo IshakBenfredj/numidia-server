@@ -20,10 +20,10 @@ router.get("/", protect, getAllReports);
 router.get("/my-reports", protect, getMyReports);
 router.get("/order/:orderId", protect, getReportsByOrder);
 
-// Admin only routes
+// Report status update (Supplier who owns the report or Admin)
 router.get("/pending", protect, admin, getPendingReports);
 router.get("/:reportId", protect, getReportById);
-router.put("/:reportId/status", protect, admin, updateReportStatus);
+router.put("/:reportId/status", protect, updateReportStatus);
 router.delete("/:reportId", protect, deleteReport);
 
 export default router;

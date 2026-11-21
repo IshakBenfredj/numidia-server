@@ -1,6 +1,8 @@
 import Report from "../models/Report.js";
 import Order from "../models/Order.js";
+import User from "../models/User.js";
 import mongoose from "mongoose";
+import { sendPushNotification } from "../utils/pushNotifications.js";
 
 const createError = (res, status, message) => {
   res.status(status).json({ success: false, message });
@@ -76,7 +78,24 @@ export const createReport = async (req, res, next) => {
       notes: notes || "",
     });
 
-    // The totalRetourAmount is auto-calculated in pre-save hook
+    // Notify Supplier directly about the return/exchange report
+    try {
+      const supplierUser = await User.findById(order.supplier)
+        .select("tokens")
+        .lean();
+      const tokens = Array.isArray(supplierUser?.tokens)
+        ? supplierUser.tokens.filter(Boolean)
+        : [];
+      if (tokens.length > 0) {
+        const traderName = req.user?.name || "تاجر";
+        sendPushNotification(
+          tokens,
+          "طلب استرجاع / تبديل جديد",
+          `أرسل ${traderName} بلاغ استرجاع أو تبديل على إحدى الطلبيات.`,
+          { reportId: report._id.toString(), type: "NEW_REPORT" },
+        );
+      }
+    } catch (_) {}
 
     res.status(201).json({
       success: true,
@@ -105,8 +124,12 @@ export const getReportsByOrder = async (req, res, next) => {
       throw createError(res, 404, "الطلب غير موجود");
     }
 
-    // Only admin or the trader who placed the order can see reports
-    if (userRole !== "admin" && order.trader.toString() !== userId.toString()) {
+    // Trader who placed the order, Supplier of the order, or Admin
+    if (
+      userRole !== "admin" &&
+      order.trader.toString() !== userId.toString() &&
+      order.supplier.toString() !== userId.toString()
+    ) {
       throw createError(res, 403, "غير مصرح لك برؤية بلاغات هذا الطلب");
     }
 
@@ -202,18 +225,10 @@ export const getReportById = async (req, res, next) => {
   }
 };
 
-// PATCH /api/reports/:reportId/status
-// Admin only - approve / reject / process
+// PUT /api/reports/:reportId/status
+// Supplier who owns the report (or Admin fallback) approves / rejects
 export const updateReportStatus = async (req, res, next) => {
   try {
-    if (req.user.role !== "admin") {
-      throw createError(
-        res,
-        403,
-        "غير مصرح - فقط الإدارة يمكنها تعديل حالة البلاغ",
-      );
-    }
-
     const { reportId } = req.params;
     const { status } = req.body;
 
@@ -226,8 +241,39 @@ export const updateReportStatus = async (req, res, next) => {
       throw createError(res, 404, "البلاغ غير موجود");
     }
 
+    const isReportSupplier =
+      req.user.role === "supplier" &&
+      report.supplier?.toString() === req.user._id.toString();
+
+    if (!isReportSupplier && req.user.role !== "admin") {
+      throw createError(
+        res,
+        403,
+        "غير مصرح - فقط المورد صاحب الطلبية يمكنه تعديل حالة البلاغ",
+      );
+    }
+
     report.status = status;
     await report.save();
+
+    // Notify Trader when Supplier updates the report status
+    try {
+      const traderUser = await User.findById(report.trader)
+        .select("tokens")
+        .lean();
+      const tokens = Array.isArray(traderUser?.tokens)
+        ? traderUser.tokens.filter(Boolean)
+        : [];
+      if (tokens.length > 0 && ["approved", "rejected"].includes(status)) {
+        const statusAr = status === "approved" ? "الموافقة على" : "رفض";
+        sendPushNotification(
+          tokens,
+          "تحديث حالة بلاغ الاسترجاع",
+          `تمت ${statusAr} بلاغ الاسترجاع الخاص بك من طرف المورد.`,
+          { reportId: report._id.toString(), type: "REPORT_STATUS" },
+        );
+      }
+    } catch (_) {}
 
     res.status(200).json({
       success: true,
