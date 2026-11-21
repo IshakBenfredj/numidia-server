@@ -52,47 +52,69 @@ export const createOrder = async (req, res) => {
     }
 
     let originalTotal = 0;
-    const populatedProducts = await Promise.all(
-      orderedProducts.map(async ({ productId, quantity }) => {
-        const product = await Product.findById(productId);
-        if (!product) {
-          return res.status(400).json({
-            success: false,
-            message: `المنتج ${productId} غير موجود`,
-          });
-        }
+    let inferredSupplierId =
+      supplier && mongoose.Types.ObjectId.isValid(String(supplier))
+        ? supplier
+        : null;
 
-        if (product.quantity < quantity) {
-           return res.status(400).json({
-            success: false,
-            message: `الكمية المطلوبة لـ ${product.name} غير متوفرة`,
-          });
-        }
-        if (product.minQuantity > quantity) {
-           return res.status(400).json({
-            success: false,
-            message: `الكمية المطلوبة لـ ${product.name} أقل من الكمية اللازم طلبها ${product.minQuantity}`,
-          });
-        }
+    const populatedProducts = [];
+    for (const { productId, quantity } of orderedProducts) {
+      const product = await Product.findById(productId);
+      if (!product) {
+        return res.status(400).json({
+          success: false,
+          message: `المنتج ${productId} غير موجود`,
+        });
+      }
 
-        let effectivePrice = product.price;
-        if (product.wholesaleTiers && Array.isArray(product.wholesaleTiers) && product.wholesaleTiers.length > 0) {
-          const sortedTiers = [...product.wholesaleTiers].sort((a, b) => b.minQty - a.minQty);
-          const matchedTier = sortedTiers.find((t) => quantity >= t.minQty);
-          if (matchedTier && matchedTier.price < effectivePrice) {
-            effectivePrice = matchedTier.price;
-          }
+      if (!inferredSupplierId && product.supplier) {
+        inferredSupplierId = product.supplier;
+      }
+
+      if (product.quantity < quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `الكمية المطلوبة لـ ${product.name} غير متوفرة`,
+        });
+      }
+      if (product.minQuantity > quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `الكمية المطلوبة لـ ${product.name} أقل من الكمية اللازم طلبها ${product.minQuantity}`,
+        });
+      }
+
+      let effectivePrice = product.price;
+      if (
+        product.wholesaleTiers &&
+        Array.isArray(product.wholesaleTiers) &&
+        product.wholesaleTiers.length > 0
+      ) {
+        const sortedTiers = [...product.wholesaleTiers].sort(
+          (a, b) => b.minQty - a.minQty,
+        );
+        const matchedTier = sortedTiers.find((t) => quantity >= t.minQty);
+        if (matchedTier && matchedTier.price < effectivePrice) {
+          effectivePrice = matchedTier.price;
         }
+      }
 
-        originalTotal += quantity * effectivePrice;
+      originalTotal += quantity * effectivePrice;
 
-        return {
-          product: productId,
-          quantity,
-          priceAtOrder: effectivePrice,
-        };
-      }),
-    );
+      populatedProducts.push({
+        product: productId,
+        quantity,
+        priceAtOrder: effectivePrice,
+      });
+    }
+
+    if (!inferredSupplierId) {
+      return res.status(400).json({
+        success: false,
+        message: "تعذر تحديد المورد الخاص بهذه المنتجات",
+      });
+    }
+    const resolvedSupplier = inferredSupplierId;
 
     const cancelledOrderIds = await Order.distinct("_id", {
       status: "cancelled",
@@ -112,7 +134,8 @@ export const createOrder = async (req, res) => {
     const linkedReports = [];
 
     const filteredReports = approvedReports.filter(
-      (report) => report.order.supplier.toString() === supplier.toString(),
+      (report) =>
+        report.order?.supplier?.toString() === resolvedSupplier.toString(),
     );
 
     for (const report of filteredReports) {
@@ -124,7 +147,7 @@ export const createOrder = async (req, res) => {
 
     const order = await Order.create({
       trader,
-      supplier,
+      supplier: resolvedSupplier,
       products: populatedProducts,
       totalAmount: originalTotal,
       deductedRetour,
@@ -144,7 +167,9 @@ export const createOrder = async (req, res) => {
 
     // Send push notification directly to the Supplier (suppliers manage their own orders)
     try {
-      const supplierUser = await User.findById(supplier).select("tokens").lean();
+      const supplierUser = await User.findById(resolvedSupplier)
+        .select("tokens")
+        .lean();
       const supplierTokens = Array.isArray(supplierUser?.tokens)
         ? supplierUser.tokens.filter(Boolean)
         : [];
