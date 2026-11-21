@@ -70,7 +70,7 @@ const SubscriptionSettingsSchema = new Schema(
     adDimensionsGuide: {
       type: String,
       trim: true,
-      default: "1200 × 600 بكسل (نسبة 2:1 أفقية)",
+      default: "1200 × 750 بكسل (نسبة 16:10 أفقية)",
     },
   },
   { timestamps: true },

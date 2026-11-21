@@ -79,7 +79,7 @@ export async function sendAdNotificationToTraders(
   try {
     const ad = await Ads.findById(adDoc._id || adDoc)
       .populate("supplier", "name businessName")
-      .populate("targetProduct", "name price")
+      .populate("targetProduct", "name price isBundle bundleItems")
       .populate("targetSupplier", "name businessName");
 
     if (!ad) return { sentCount: 0 };
@@ -114,7 +114,17 @@ export async function sendAdNotificationToTraders(
 
     let defaultBody = "اكتشف هذا العرض الترويجي الجديد الآن على الصفحة الرئيسية في نوميديا.";
     if (ad.targetType === "product" && ad.targetProduct?.name) {
-      defaultBody = `تصفح المنتج المميز: ${ad.targetProduct.name} بسعر ${ad.targetProduct.price} دج.`;
+      if (ad.targetProduct.isBundle) {
+        const itemsCount = Array.isArray(ad.targetProduct.bundleItems)
+          ? ad.targetProduct.bundleItems.length
+          : 0;
+        defaultBody =
+          itemsCount > 0
+            ? `تجميعة خاصة: ${ad.targetProduct.name} (${itemsCount} أصناف) بسعر ${ad.targetProduct.price} دج.`
+            : `تجميعة خاصة: ${ad.targetProduct.name} بسعر ${ad.targetProduct.price} دج.`;
+      } else {
+        defaultBody = `تصفح المنتج المميز: ${ad.targetProduct.name} بسعر ${ad.targetProduct.price} دج.`;
+      }
     } else if (
       ad.targetType === "product_collection" &&
       Array.isArray(ad.targetProducts) &&
@@ -213,7 +223,7 @@ export const getAdSettings = async (req, res) => {
         defaultAdDurationDays: settings.defaultAdDurationDays ?? 7,
         adNotificationIntervalHours: settings.adNotificationIntervalHours ?? 24,
         adDimensionsGuide:
-          settings.adDimensionsGuide || "1200 × 600 بكسل (نسبة 2:1 أفقية)",
+          settings.adDimensionsGuide || "1200 × 750 بكسل (نسبة 16:10 أفقية)",
         ccpNumber: settings.ccpNumber || "",
         ccpName: settings.ccpName || "",
         baridiMobRip: settings.baridiMobRip || "",

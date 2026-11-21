@@ -64,6 +64,21 @@ const ProductSchema = new Schema(
         price: { type: Number, required: true },
       },
     ],
+    isBundle: {
+      type: Boolean,
+      default: false,
+    },
+    bundleItems: [
+      {
+        name: { type: String, required: true, trim: true, maxlength: 150 },
+        quantity: { type: Number, required: true, min: 1, default: 1 },
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Product",
+          default: null,
+        },
+      },
+    ],
     supplier: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -82,5 +97,6 @@ const ProductSchema = new Schema(
 ProductSchema.index({ supplier: 1, category: 1 });
 ProductSchema.index({ createdAt: -1 });
 ProductSchema.index({ isActive: 1 });
+ProductSchema.index({ isBundle: 1 });
 
 export default models.Product || model("Product", ProductSchema);

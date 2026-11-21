@@ -185,9 +185,55 @@
 // };
 
 // controllers/productController.js
+import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import { deleteFileByUrl, uploadMultipleImages } from "../utils/r2storage.js";
 
+const ALLOWED_QUALITIES = [
+  "original",
+  "oled",
+  "incell",
+  "tft",
+  "high_copy",
+  "standard",
+];
+
+function parseArrayInput(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function sanitizeWholesaleTiers(raw) {
+  return parseArrayInput(raw)
+    .map((t) => ({
+      minQty: Math.max(1, Number(t?.minQty) || 0),
+      price: Math.max(0, Number(t?.price) || 0),
+    }))
+    .filter((t) => t.minQty > 0 && t.price >= 0);
+}
+
+function sanitizeBundleItems(raw) {
+  return parseArrayInput(raw)
+    .map((item) => {
+      const name = String(item?.name || "").trim();
+      const quantity = Math.max(1, parseInt(item?.quantity, 10) || 1);
+      const rawPid = item?.product || item?.productId || null;
+      const product =
+        rawPid && mongoose.Types.ObjectId.isValid(String(rawPid))
+          ? new mongoose.Types.ObjectId(String(rawPid))
+          : null;
+      return { name, quantity, product };
+    })
+    .filter((item) => item.name.length > 0);
+}
 
 export const createProduct = async (req, res) => {
   try {
@@ -199,32 +245,55 @@ export const createProduct = async (req, res) => {
       minQuantity,
       category,
       description,
+      quality,
+      wholesaleTiers,
+      isBundle = false,
+      bundleItems,
       images: base64Images = [],
     } = req.body;
 
     const supplier = req.user._id;
+    const bundleFlag = isBundle === true || isBundle === "true";
+    const cleanBundleItems = bundleFlag ? sanitizeBundleItems(bundleItems) : [];
+
+    if (bundleFlag && cleanBundleItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "يرجى إضافة مكون واحد على الأقل داخل التجميعة",
+      });
+    }
+
+    const cleanQuality = ALLOWED_QUALITIES.includes(quality)
+      ? quality
+      : "standard";
+    const cleanTiers = sanitizeWholesaleTiers(wholesaleTiers);
 
     let uploadedImageUrls = [];
-    if (base64Images.length > 0) {
-      // Use your new R2 helper
+    if (Array.isArray(base64Images) && base64Images.length > 0) {
       uploadedImageUrls = await uploadMultipleImages(base64Images, "products");
     }
 
     const product = await Product.create({
       name,
-      price,
+      price: Number(price),
       oldPrice: oldPrice ? Number(oldPrice) : undefined,
       quantity: Number(quantity),
-      minQuantity: Number(minQuantity),
+      minQuantity: Number(minQuantity) || 1,
       category,
       description: description || "",
-      images: uploadedImageUrls,           // Now it's array of direct URLs
+      quality: cleanQuality,
+      wholesaleTiers: cleanTiers,
+      isBundle: bundleFlag,
+      bundleItems: cleanBundleItems,
+      images: uploadedImageUrls,
       supplier,
     });
 
     res.status(201).json({
       success: true,
-      message: "تم اضافة المنتج بنجاح",
+      message: bundleFlag
+        ? "تم إضافة التجميعة بنجاح"
+        : "تم اضافة المنتج بنجاح",
       product,
     });
   } catch (error) {
@@ -247,7 +316,11 @@ export const updateProduct = async (req, res) => {
       minQuantity,
       category,
       description,
-      images,           // Can contain existing URLs + new base64 images
+      quality,
+      wholesaleTiers,
+      isBundle,
+      bundleItems,
+      images, // Can contain existing URLs + new base64 images
     } = req.body;
 
     const product = await Product.findById(id);
@@ -303,6 +376,23 @@ export const updateProduct = async (req, res) => {
     // Limit to maximum 5 images
     finalImageUrls = finalImageUrls.slice(0, 5);
 
+    const nextIsBundle =
+      isBundle !== undefined
+        ? isBundle === true || isBundle === "true"
+        : Boolean(product.isBundle);
+    const nextBundleItems = nextIsBundle
+      ? bundleItems !== undefined
+        ? sanitizeBundleItems(bundleItems)
+        : product.bundleItems || []
+      : [];
+
+    if (nextIsBundle && nextBundleItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "يرجى إضافة مكون واحد على الأقل داخل التجميعة",
+      });
+    }
+
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       {
@@ -315,10 +405,21 @@ export const updateProduct = async (req, res) => {
               : undefined
             : product.oldPrice,
         quantity: quantity !== undefined ? Number(quantity) : product.quantity,
-        minQuantity: minQuantity !== undefined ? Number(minQuantity) : product.minQuantity,
+        minQuantity:
+          minQuantity !== undefined ? Number(minQuantity) : product.minQuantity,
         category: category || product.category,
         description:
           description !== undefined ? description : product.description,
+        quality:
+          quality !== undefined && ALLOWED_QUALITIES.includes(quality)
+            ? quality
+            : product.quality,
+        wholesaleTiers:
+          wholesaleTiers !== undefined
+            ? sanitizeWholesaleTiers(wholesaleTiers)
+            : product.wholesaleTiers,
+        isBundle: nextIsBundle,
+        bundleItems: nextBundleItems,
         images: finalImageUrls,
       },
       { new: true, runValidators: true }
