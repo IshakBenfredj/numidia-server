@@ -38,6 +38,16 @@ const ReportSchema = new Schema(
         },
       },
     ],
+    images: {
+      type: [String],
+      validate: {
+        validator: function (arr) {
+          return arr.length <= 2;
+        },
+        message: "يمكن إرفاق صورتين كحد أقصى لإثبات الضرر",
+      },
+      default: [],
+    },
     totalRetourAmount: {
       type: Number,
       default: 0,
@@ -52,6 +62,23 @@ const ReportSchema = new Schema(
       type: String,
       trim: true,
       maxlength: [500, "الملاحظات لا تتجاوز 500 حرف"],
+      default: "",
+    },
+    supplierNote: {
+      type: String,
+      trim: true,
+      maxlength: [500, "رد المورد لا يتجاوز 500 حرف"],
+      default: "",
+    },
+    disputeEscalated: {
+      type: Boolean,
+      default: false,
+    },
+    disputeNote: {
+      type: String,
+      trim: true,
+      maxlength: [500, "تفاصيل التصعيد لا تتجاوز 500 حرف"],
+      default: "",
     },
     linkedOrder: {
       type: mongoose.Schema.Types.ObjectId,
@@ -64,19 +91,22 @@ const ReportSchema = new Schema(
   }
 );
 
+ReportSchema.index({ order: 1, createdAt: -1 });
+ReportSchema.index({ supplier: 1, status: 1, createdAt: -1 });
+ReportSchema.index({ trader: 1, supplier: 1, status: 1 });
+ReportSchema.index({ disputeEscalated: 1, createdAt: -1 });
+
 // Pre-save hook to calculate totalRetourAmount
 ReportSchema.pre("save", async function () {
   let totalRetour = 0;
 
-  // Populate order to get priceAtOrder for each product
   const order = await mongoose.model("Order").findById(this.order);
-
   if (!order) {
     throw new Error("الطلب غير موجود");
   }
 
   if (order.status !== "delivered") {
-    throw new Error("لا يمكن الإبلاغ إلا على الطلبات المُسلّمة");
+    throw new Error("لا يمكن طلب الاسترجاع إلا على الطلبات المُسلّمة");
   }
 
   for (const item of this.reportedItems) {
@@ -89,7 +119,9 @@ ReportSchema.pre("save", async function () {
     }
 
     if (item.quantity > orderedProduct.quantity) {
-      throw new Error(`الكمية المبلغ عنها لـ ${item.product} تتجاوز الكمية المطلوبة`);
+      throw new Error(
+        `الكمية المحددة لـ ${item.product} تتجاوز الكمية المطلوبة`
+      );
     }
 
     if (item.action === "retour") {

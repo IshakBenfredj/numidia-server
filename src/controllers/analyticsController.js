@@ -115,7 +115,10 @@ export const getDashboardAnalyticsTabs = async (req, res) => {
 
     if (role === "admin") {
       queryOrder = { status: "pending" };
-      queryReport = { status: "pending" };
+      queryReport = {
+        disputeEscalated: true,
+        status: { $in: ["pending", "rejected"] },
+      };
     } else if (role === "supplier") {
       queryOrder = { status: "pending", supplier: userId };
       queryReport = { status: "pending", supplier: userId };
