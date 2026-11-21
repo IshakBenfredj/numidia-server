@@ -235,6 +235,17 @@ function sanitizeBundleItems(raw) {
     .filter((item) => item.name.length > 0);
 }
 
+function sanitizeCategories(rawCategories, primaryCategory) {
+  const list = parseArrayInput(rawCategories)
+    .map((c) => String(c || "").trim())
+    .filter(Boolean);
+  const primary = String(primaryCategory || "").trim();
+  if (primary && !list.includes(primary)) {
+    list.unshift(primary);
+  }
+  return [...new Set(list)];
+}
+
 export const createProduct = async (req, res) => {
   try {
     const {
@@ -244,6 +255,7 @@ export const createProduct = async (req, res) => {
       quantity,
       minQuantity,
       category,
+      categories,
       description,
       quality,
       wholesaleTiers,
@@ -263,6 +275,9 @@ export const createProduct = async (req, res) => {
       });
     }
 
+    const cleanCategories = sanitizeCategories(categories, category);
+    const primaryCat = cleanCategories[0] || String(category || "").trim();
+
     const cleanQuality = ALLOWED_QUALITIES.includes(quality)
       ? quality
       : "standard";
@@ -279,7 +294,8 @@ export const createProduct = async (req, res) => {
       oldPrice: oldPrice ? Number(oldPrice) : undefined,
       quantity: Number(quantity),
       minQuantity: Number(minQuantity) || 1,
-      category,
+      category: primaryCat,
+      categories: cleanCategories,
       description: description || "",
       quality: cleanQuality,
       wholesaleTiers: cleanTiers,
@@ -315,6 +331,7 @@ export const updateProduct = async (req, res) => {
       quantity,
       minQuantity,
       category,
+      categories,
       description,
       quality,
       wholesaleTiers,
@@ -393,6 +410,15 @@ export const updateProduct = async (req, res) => {
       });
     }
 
+    const nextCategories =
+      categories !== undefined || category !== undefined
+        ? sanitizeCategories(categories, category || product.category)
+        : product.categories?.length
+          ? product.categories
+          : [product.category].filter(Boolean);
+    const nextPrimaryCategory =
+      nextCategories[0] || category || product.category;
+
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       {
@@ -407,7 +433,8 @@ export const updateProduct = async (req, res) => {
         quantity: quantity !== undefined ? Number(quantity) : product.quantity,
         minQuantity:
           minQuantity !== undefined ? Number(minQuantity) : product.minQuantity,
-        category: category || product.category,
+        category: nextPrimaryCategory,
+        categories: nextCategories,
         description:
           description !== undefined ? description : product.description,
         quality:
@@ -511,7 +538,9 @@ export const getAllProducts = async (req, res) => {
     const search = req.query.search;
 
     const query = { isActive: { $ne: false } };
-    if (category) query.category = category;
+    if (category) {
+      query.$or = [{ category }, { categories: category }];
+    }
     if (supplier) query.supplier = supplier;
     if (search) {
       query.name = { $regex: search, $options: "i" };
@@ -553,7 +582,9 @@ export const getProductsBySupplier = async (req, res) => {
       supplier: req.params.id,
       isActive: { $ne: false },
     };
-    if (category) query.category = category;
+    if (category) {
+      query.$or = [{ category }, { categories: category }];
+    }
 
     const total = await Product.countDocuments(query);
     let productQuery = Product.find(query)

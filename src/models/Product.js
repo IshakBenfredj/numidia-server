@@ -37,6 +37,10 @@ const ProductSchema = new Schema(
       type: String,
       required: [true, "الفئة مطلوبة"],
     },
+    categories: {
+      type: [String],
+      default: [],
+    },
     images: {
       type: [String],
       validate: {
@@ -95,6 +99,7 @@ const ProductSchema = new Schema(
 );
 
 ProductSchema.index({ supplier: 1, category: 1 });
+ProductSchema.index({ categories: 1 });
 ProductSchema.index({ createdAt: -1 });
 ProductSchema.index({ isActive: 1 });
 ProductSchema.index({ isBundle: 1 });

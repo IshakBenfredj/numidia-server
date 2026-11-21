@@ -9,9 +9,16 @@ function initFirebaseAdmin() {
   }
 
   try {
-    const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+    let rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (rawServiceAccount) {
-      const jsonStr = rawServiceAccount.trim().startsWith("{")
+      rawServiceAccount = rawServiceAccount.trim();
+      if (
+        (rawServiceAccount.startsWith('"') && rawServiceAccount.endsWith('"')) ||
+        (rawServiceAccount.startsWith("'") && rawServiceAccount.endsWith("'"))
+      ) {
+        rawServiceAccount = rawServiceAccount.slice(1, -1).trim();
+      }
+      const jsonStr = rawServiceAccount.startsWith("{")
         ? rawServiceAccount
         : Buffer.from(rawServiceAccount, "base64").toString("utf8");
       const serviceAccount = JSON.parse(jsonStr);
@@ -136,7 +143,10 @@ export const sendPushNotification = async (
           successCount: fcmRes.successCount,
           failureCount: fcmRes.failureCount,
         };
+        results.fcmSkipped = false;
       } else {
+        results.fcmSkipped = true;
+        results.fcmSkippedCount = fcmTokens.length;
         console.log(
           `[FCM] Skipped ${fcmTokens.length} Flutter FCM token(s): FIREBASE_SERVICE_ACCOUNT env var not configured on server yet.`,
         );

@@ -146,8 +146,14 @@ export async function sendAdNotificationToTraders(
       clickUrl: ad.clickUrl || "",
     };
 
+    let pushResult = null;
     if (traderTokens.length > 0) {
-      await sendPushNotification(traderTokens, notifTitle, notifBody, payload);
+      pushResult = await sendPushNotification(
+        traderTokens,
+        notifTitle,
+        notifBody,
+        payload
+      );
     }
 
     ad.lastNotifiedAt = new Date();
@@ -163,7 +169,13 @@ export async function sendAdNotificationToTraders(
       sentBy: sentBy || undefined,
     }).catch(() => {});
 
-    return { sentCount: traderTokens.length, title: notifTitle, body: notifBody };
+    return {
+      sentCount: traderTokens.length,
+      title: notifTitle,
+      body: notifBody,
+      fcmSkipped: Boolean(pushResult?.fcmSkipped),
+      fcmResult: pushResult?.fcm || null,
+    };
   } catch (error) {
     console.error("Send Ad Notification To Traders Error:", error);
     return { sentCount: 0, error: error.message };
@@ -689,9 +701,13 @@ export const notifyTradersForAd = async (req, res) => {
       sentBy: req.user._id,
     });
 
+    const msg = result.fcmSkipped
+      ? "لم يتم ضبط مفتاح FIREBASE_SERVICE_ACCOUNT على سيرفر Render لإشعارات Flutter"
+      : `تم إرسال إشعار الإعلان إلى ${result.sentCount} جهاز من أجهزة التجار`;
+
     res.status(200).json({
       success: true,
-      message: `تم إرسال إشعار الإعلان إلى ${result.sentCount} جهاز من أجهزة التجار`,
+      message: msg,
       result,
     });
   } catch (error) {
@@ -946,8 +962,8 @@ export const getAllAds = async (req, res) => {
     const ads = await Ads.find(query)
       .sort({ createdAt: -1 })
       .populate("supplier", "name businessName phone logo type")
-      .populate("targetProduct", "name price images")
-      .populate("targetProducts", "name price images")
+      .populate("targetProduct", "name price images isBundle bundleItems")
+      .populate("targetProducts", "name price images isBundle")
       .populate("targetSupplier", "name businessName logo type")
       .select("-__v")
       .lean();

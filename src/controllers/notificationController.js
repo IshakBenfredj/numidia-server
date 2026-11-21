@@ -37,8 +37,9 @@ export const broadcastNotification = async (req, res) => {
     // Remove duplicates
     allTokens = [...new Set(allTokens.filter(Boolean))];
 
+    let pushResult = null;
     if (allTokens.length > 0) {
-      await sendPushNotification(allTokens, title.trim(), body.trim(), {
+      pushResult = await sendPushNotification(allTokens, title.trim(), body.trim(), {
         ...data,
         targetGroup,
         sentAt: new Date().toISOString(),
@@ -55,10 +56,15 @@ export const broadcastNotification = async (req, res) => {
       sentBy: req.user?._id,
     });
 
+    const msg = pushResult?.fcmSkipped
+      ? "تم حفظ الإشعار، لكن مفتاح FIREBASE_SERVICE_ACCOUNT غير مضاف في إعدادات سيرفر Render لإشعارات Flutter"
+      : `تم إرسال الإشعار بنجاح إلى ${allTokens.length} جهاز`;
+
     return res.status(200).json({
       success: true,
-      message: `تم إرسال الإشعار بنجاح إلى ${allTokens.length} جهاز`,
+      message: msg,
       notification: notificationLog,
+      fcmSkipped: Boolean(pushResult?.fcmSkipped),
     });
   } catch (error) {
     console.error("Broadcast Notification Error:", error);
