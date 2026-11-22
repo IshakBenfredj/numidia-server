@@ -119,6 +119,46 @@ export async function getVisibleSupplierIds() {
   };
 }
 
+/**
+ * Automatic Supplier Verification:
+ * - Only Suppliers have verification (never Traders).
+ * - A Supplier is automatically verified whenever their account is active AND has subscription access.
+ */
+export function computeSupplierAutoVerified(user, settings) {
+  if (!user || user.role !== "supplier") return false;
+  if (user.isActive === false) return false;
+  return computeSupplierSubscriptionState(user, settings).hasAccess === true;
+}
+
+// GET /api/subscriptions/app-version (Public — checked by every user on app launch/resume)
+export const getAppVersionConfig = async (req, res) => {
+  try {
+    const settings = await getOrCreateSettings();
+    res.status(200).json({
+      success: true,
+      data: {
+        latestAndroidVersion: settings.latestAndroidVersion || "1.0.0",
+        latestAndroidBuildNumber: Number(settings.latestAndroidBuildNumber) || 1,
+        playStoreUrl:
+          settings.playStoreUrl ||
+          "https://play.google.com/store/apps/details?id=com.numidia.numidia",
+        updateTitle:
+          settings.updateTitle || "تحديث جديد متوفر لتطبيق نوميديا",
+        updateMessage:
+          settings.updateMessage ||
+          "يتوفر إصدار جديد من التطبيق يتضمن تحسينات مهمة وميزات جديدة. يرجى التحديث الآن من متجر جوجل.",
+        forceUpdate: Boolean(settings.forceUpdate),
+      },
+    });
+  } catch (error) {
+    console.error("Get App Version Config Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "فشل جلب معلومات تحديث التطبيق",
+    });
+  }
+};
+
 // GET /api/subscriptions/settings
 export const getSubscriptionSettings = async (req, res) => {
   try {
@@ -144,6 +184,12 @@ export const updateSubscriptionSettings = async (req, res) => {
       baridiMobRip,
       whatsappNumber,
       instructions,
+      latestAndroidVersion,
+      latestAndroidBuildNumber,
+      playStoreUrl,
+      updateTitle,
+      updateMessage,
+      forceUpdate,
     } = req.body;
 
     if (subscriptionsEnabled !== undefined) {
@@ -166,6 +212,27 @@ export const updateSubscriptionSettings = async (req, res) => {
       settings.whatsappNumber = String(whatsappNumber).trim();
     if (instructions !== undefined)
       settings.instructions = String(instructions).trim();
+    if (latestAndroidVersion !== undefined && String(latestAndroidVersion).trim()) {
+      settings.latestAndroidVersion = String(latestAndroidVersion).trim();
+    }
+    if (latestAndroidBuildNumber !== undefined) {
+      settings.latestAndroidBuildNumber = Math.max(
+        1,
+        parseInt(latestAndroidBuildNumber, 10) || 1,
+      );
+    }
+    if (playStoreUrl !== undefined && String(playStoreUrl).trim()) {
+      settings.playStoreUrl = String(playStoreUrl).trim();
+    }
+    if (updateTitle !== undefined) {
+      settings.updateTitle = String(updateTitle).trim();
+    }
+    if (updateMessage !== undefined) {
+      settings.updateMessage = String(updateMessage).trim();
+    }
+    if (forceUpdate !== undefined) {
+      settings.forceUpdate = Boolean(forceUpdate);
+    }
 
     await settings.save();
 
@@ -361,6 +428,8 @@ export const approveSubscriptionRequest = async (req, res) => {
             ? "monthly"
             : "custom";
     supplier.isActive = true;
+    supplier.isVerified = true;
+    supplier.kycStatus = "verified";
     await supplier.save();
 
     request.status = "approved";
@@ -541,6 +610,8 @@ export const adminUpdateSupplierSubscription = async (req, res) => {
             ? "monthly"
             : "custom";
     supplier.isActive = true;
+    supplier.isVerified = true;
+    supplier.kycStatus = "verified";
     await supplier.save();
 
     if (Array.isArray(supplier.tokens) && supplier.tokens.length > 0) {

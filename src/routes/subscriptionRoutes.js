@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  getAppVersionConfig,
   getSubscriptionSettings,
   updateSubscriptionSettings,
   getMySubscriptionStatus,
@@ -13,6 +14,9 @@ import {
 import { protect, admin } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
+
+// Public endpoint so every user (including guests & unlogged screens) checks for Play Store updates
+router.get("/app-version", getAppVersionConfig);
 
 router.get("/settings", protect, getSubscriptionSettings);
 router.put("/settings", protect, admin, updateSubscriptionSettings);

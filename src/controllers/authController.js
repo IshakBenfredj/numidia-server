@@ -5,6 +5,10 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
 } from "../utils/nodemailer.js";
+import {
+  computeSupplierAutoVerified,
+  getOrCreateSettings,
+} from "./subscriptionController.js";
 
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -24,6 +28,24 @@ const sendResponse = (res, statusCode, message, user = null, token = true) => {
         role: user.role,
         address: user.address || null,
         isActive: user.isActive,
+        isVerified:
+          user.role === "supplier"
+            ? Boolean(
+                user._computedVerified !== undefined
+                  ? user._computedVerified
+                  : user.isVerified,
+              )
+            : false,
+        kycStatus:
+          user.role === "supplier"
+            ? (
+                user._computedVerified !== undefined
+                  ? user._computedVerified
+                  : user.isVerified
+              )
+              ? "verified"
+              : "unverified"
+            : "unverified",
         logo: user.logo || null,
         businessName: user.businessName || null,
         commissionRate: user.commissionRate || 0,
@@ -277,6 +299,11 @@ export const login = async (req, res) => {
     if (user.role !== "admin" && !user.isActive)
       return sendResponse(res, 403, "الحساب غير مفعل، تواصل مع الإدارة");
 
+    if (user.role === "supplier") {
+      const settings = await getOrCreateSettings();
+      user._computedVerified = computeSupplierAutoVerified(user, settings);
+    }
+
     sendResponse(res, 200, "", user);
   } catch (error) {
     console.error("Login Error:", error);
@@ -289,6 +316,10 @@ export const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select("-password");
     if (!user) return sendResponse(res, 404, "المستخدم غير موجود");
+    if (user.role === "supplier") {
+      const settings = await getOrCreateSettings();
+      user._computedVerified = computeSupplierAutoVerified(user, settings);
+    }
     sendResponse(res, 200, "", user, false);
   } catch (error) {
     console.error("Get Me Error:", error);

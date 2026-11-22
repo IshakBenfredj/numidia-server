@@ -223,7 +223,11 @@ import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import { deleteFileByUrl, uploadSingleImage } from "../utils/r2storage.js";
 import Report from "../models/Report.js";
-import { getVisibleSupplierIds } from "./subscriptionController.js";
+import {
+  computeSupplierAutoVerified,
+  getOrCreateSettings,
+  getVisibleSupplierIds,
+} from "./subscriptionController.js";
 
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
@@ -580,8 +584,13 @@ export const getSupplierById = async (req, res) => {
       supplier: supplier._id,
     });
 
+    const settings = await getOrCreateSettings();
+    const autoVerified = computeSupplierAutoVerified(supplier, settings);
+
     const enrichedSupplier = {
       ...supplier,
+      isVerified: autoVerified,
+      kycStatus: autoVerified ? "verified" : "unverified",
       deliveredCommission,
       currentDebt: debtsResult?.totalAmount || 0,
       ordersCount,
@@ -614,6 +623,15 @@ export const getUserById = async (req, res) => {
     }
     const ordersCount = await Order.countDocuments({ trader: id });
     user.ordersCount = ordersCount;
+    if (user.role === "supplier") {
+      const settings = await getOrCreateSettings();
+      const autoVerified = computeSupplierAutoVerified(user, settings);
+      user.isVerified = autoVerified;
+      user.kycStatus = autoVerified ? "verified" : "unverified";
+    } else {
+      user.isVerified = false;
+      user.kycStatus = "unverified";
+    }
     res.status(200).json({
       success: true,
       data: user,
@@ -727,15 +745,23 @@ export const getAllUsers = async (req, res) => {
       }, {});
     }
 
+    const settings = await getOrCreateSettings();
     users = users.map((user) => {
       if (user.role === "supplier") {
         const deliveredCommission = commissionMap[user._id.toString()] ?? 0;
+        const autoVerified = computeSupplierAutoVerified(user, settings);
         return {
           ...user,
+          isVerified: autoVerified,
+          kycStatus: autoVerified ? "verified" : "unverified",
           deliveredCommission,
         };
       }
-      return user;
+      return {
+        ...user,
+        isVerified: false,
+        kycStatus: "unverified",
+      };
     });
 
     res.status(200).json({
@@ -804,11 +830,17 @@ export const getUsersByType = async (req, res) => {
       return acc;
     }, {});
 
-    // Step 3: Attach productCount to each supplier
-    const enrichedSuppliers = suppliers.map((supplier) => ({
-      ...supplier,
-      productCount: countMap[supplier._id.toString()] || 0,
-    }));
+    // Step 3: Attach productCount & automatic verification status to each visible supplier
+    const settings = await getOrCreateSettings();
+    const enrichedSuppliers = suppliers.map((supplier) => {
+      const autoVerified = computeSupplierAutoVerified(supplier, settings);
+      return {
+        ...supplier,
+        isVerified: autoVerified,
+        kycStatus: autoVerified ? "verified" : "unverified",
+        productCount: countMap[supplier._id.toString()] || 0,
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -955,11 +987,20 @@ export const changeTraderPassword = async (req, res) => {
   }
 };
 
-// PUT /api/users/:id/kyc-status (Admin only)
-export const updateUserKycStatus = async (req, res) => {
+// PUT /api/users/:id (Admin toggles isActive or edits basic user fields)
+export const adminUpdateUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    const { kycStatus, isVerified, commissionRate, kycNotes } = req.body;
+    const {
+      name,
+      phone,
+      address,
+      businessName,
+      commissionRate,
+      isActive,
+      type,
+      password,
+    } = req.body;
 
     const user = await User.findById(id);
     if (!user) {
@@ -969,16 +1010,98 @@ export const updateUserKycStatus = async (req, res) => {
       });
     }
 
-    if (kycStatus) user.kycStatus = kycStatus;
-    if (typeof isVerified === "boolean") user.isVerified = isVerified;
+    if (phone && phone !== user.phone) {
+      const existing = await User.findOne({ phone });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: "رقم الهاتف مسجل لمستخدم آخر",
+        });
+      }
+      user.phone = String(phone).trim().replace(/[^\d+]/g, "");
+    }
+
+    if (name !== undefined && String(name).trim()) user.name = String(name).trim();
+    if (address !== undefined) user.address = String(address).trim();
+    if (businessName !== undefined) user.businessName = String(businessName).trim();
+    if (commissionRate !== undefined && user.role === "supplier") {
+      user.commissionRate = Number(commissionRate);
+    }
+    if (type !== undefined && user.role === "supplier") {
+      user.type = type === "spare_parts" ? "spart_parts" : type;
+    }
+    if (typeof isActive === "boolean") {
+      user.isActive = isActive;
+    }
+    if (password && String(password).length >= 6) {
+      user.password = String(password);
+    }
+
+    await user.save();
+
+    const safeUser = user.toObject();
+    delete safeUser.password;
+    if (safeUser.role === "supplier") {
+      const settings = await getOrCreateSettings();
+      const autoVerified = computeSupplierAutoVerified(safeUser, settings);
+      safeUser.isVerified = autoVerified;
+      safeUser.kycStatus = autoVerified ? "verified" : "unverified";
+    } else {
+      safeUser.isVerified = false;
+      safeUser.kycStatus = "unverified";
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "تم تحديث بيانات الحساب بنجاح",
+      data: safeUser,
+    });
+  } catch (error) {
+    console.error("Admin Update User Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تحديث الحساب",
+    });
+  }
+};
+
+// PUT /api/users/:id/kyc-status (Admin only - Suppliers only; automatic on activation)
+export const updateUserKycStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { commissionRate, kycNotes } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+      });
+    }
+
+    if (user.role !== "supplier") {
+      user.isVerified = false;
+      user.kycStatus = "unverified";
+      await user.save();
+      return res.status(400).json({
+        success: false,
+        message: "التوثيق خاص بحسابات الموردين فقط ولا يشمل التجار",
+      });
+    }
+
     if (typeof commissionRate === "number") user.commissionRate = commissionRate;
     if (typeof kycNotes === "string") user.kycNotes = kycNotes;
+
+    const settings = await getOrCreateSettings();
+    const autoVerified = computeSupplierAutoVerified(user, settings);
+    user.isVerified = autoVerified;
+    user.kycStatus = autoVerified ? "verified" : "unverified";
 
     await user.save();
 
     res.status(200).json({
       success: true,
-      message: "تم تحديث حالة توثيق الحساب بنجاح",
+      message: "تم تحديث حالة التوثيق التلقائي للمورد",
       data: user,
     });
   } catch (error) {
@@ -990,7 +1113,7 @@ export const updateUserKycStatus = async (req, res) => {
   }
 };
 
-// PUT /api/users/me/kyc (User submits KYC documents)
+// PUT /api/users/me/kyc (Suppliers only; auto-verified when active)
 export const submitKycDocuments = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1004,23 +1127,29 @@ export const submitKycDocuments = async (req, res) => {
       });
     }
 
+    if (user.role !== "supplier") {
+      return res.status(403).json({
+        success: false,
+        message: "توثيق الحساب خاص بالموردين فقط ولا يخص التجار",
+      });
+    }
+
     if (commercialRegister) user.commercialRegister = commercialRegister;
     if (taxId) user.taxId = taxId;
     if (identityCardImage) user.identityCardImage = identityCardImage;
-    user.kycStatus = "pending";
 
     await user.save();
 
     res.status(200).json({
       success: true,
-      message: "تم تقديم وثائق التوثيق بنجاح وهي قيد مراجعة الإدارة",
+      message: "تم حفظ بيانات المورد، والتوثيق مفعّل تلقائياً للحسابات المفعلة",
       data: user,
     });
   } catch (error) {
     console.error("Submit KYC Error:", error);
     res.status(500).json({
       success: false,
-      message: "حدث خطأ أثناء تقديم وثائق التوثيق",
+      message: "حدث خطأ أثناء حفظ البيانات",
     });
   }
 };

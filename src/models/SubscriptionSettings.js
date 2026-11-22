@@ -72,6 +72,37 @@ const SubscriptionSettingsSchema = new Schema(
       trim: true,
       default: "1200 × 750 بكسل (نسبة 16:10 أفقية)",
     },
+    // App Version & Google Play Store Update Banner Config
+    latestAndroidVersion: {
+      type: String,
+      trim: true,
+      default: "1.0.0",
+    },
+    latestAndroidBuildNumber: {
+      type: Number,
+      default: 1,
+    },
+    playStoreUrl: {
+      type: String,
+      trim: true,
+      default:
+        "https://play.google.com/store/apps/details?id=com.numidia.numidia",
+    },
+    updateTitle: {
+      type: String,
+      trim: true,
+      default: "تحديث جديد متوفر لتطبيق نوميديا",
+    },
+    updateMessage: {
+      type: String,
+      trim: true,
+      default:
+        "يتوفر إصدار جديد من التطبيق يتضمن تحسينات مهمة وميزات جديدة. يرجى التحديث الآن من متجر جوجل للحصول على أفضل تجربة.",
+    },
+    forceUpdate: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true },
 );

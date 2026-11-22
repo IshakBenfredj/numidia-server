@@ -152,6 +152,16 @@ const UserSchema = new Schema(
 );
 
 UserSchema.pre("save", async function () {
+  // Automatic account verification: ONLY active Suppliers are verified; Traders are never KYC-verified
+  if (this.role === "supplier") {
+    const active = this.isActive !== false;
+    this.isVerified = active;
+    this.kycStatus = active ? "verified" : "unverified";
+  } else {
+    this.isVerified = false;
+    this.kycStatus = "unverified";
+  }
+
   if (!this.isModified("password")) return;
 
   this.password = await bcrypt.hash(this.password, 12);
