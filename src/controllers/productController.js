@@ -573,7 +573,7 @@ export const getAllProducts = async (req, res) => {
     const total = await Product.countDocuments(query);
     let productQuery = Product.find(query)
       .sort({ createdAt: -1 })
-      .populate("supplier", "name phone logo businessName");
+      .populate("supplier", "name phone logo businessName type isVerified isActive");
 
     if (limit > 0) {
       productQuery = productQuery.skip((page - 1) * limit).limit(limit);
@@ -632,7 +632,7 @@ export const getProductsBySupplier = async (req, res) => {
     const total = await Product.countDocuments(query);
     let productQuery = Product.find(query)
       .sort({ createdAt: -1 })
-      .populate("supplier", "name phone logo businessName");
+      .populate("supplier", "name phone logo businessName type isVerified isActive");
 
     if (limit > 0) {
       productQuery = productQuery.skip((page - 1) * limit).limit(limit);
@@ -670,7 +670,7 @@ export const getProductsByIds = async (req, res) => {
     }
 
     const products = await Product.find(query)
-      .populate("supplier", "name phone logo businessName")
+      .populate("supplier", "name phone logo businessName type isVerified isActive")
       .lean();
 
     res.status(200).json({ success: true, products });
