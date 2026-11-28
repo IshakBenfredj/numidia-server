@@ -221,7 +221,11 @@ import bcrypt from "bcryptjs";
 import Debt from "../models/Debt.js";
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
-import { deleteFileByUrl, uploadSingleImage } from "../utils/r2storage.js";
+import {
+  deleteFileByUrl,
+  uploadFile,
+  uploadSingleImage,
+} from "../utils/r2storage.js";
 import Report from "../models/Report.js";
 import {
   computeSupplierAutoVerified,
@@ -229,36 +233,66 @@ import {
   getVisibleSupplierIds,
 } from "./subscriptionController.js";
 
+const normalizeSupplierType = (rawType) => {
+  if (!rawType) return "";
+  const t = String(rawType).trim();
+  if (t === "spare_parts") return "spart_parts";
+  if (t === "accessories") return "accessoire";
+  return t;
+};
+
+const parseOptionalBoolean = (val) => {
+  if (typeof val === "boolean") return val;
+  if (val === "true") return true;
+  if (val === "false") return false;
+  return undefined;
+};
+
+const uploadIncomingLogo = async (req) => {
+  if (req.file && Buffer.isBuffer(req.file.buffer) && req.file.buffer.length > 0) {
+    const mime =
+      req.file.mimetype && req.file.mimetype.startsWith("image/")
+        ? req.file.mimetype
+        : "image/jpeg";
+    return uploadFile(req.file.buffer, "logos", null, mime);
+  }
+  const logo = req.body?.logo;
+  if (logo && typeof logo === "string" && logo.startsWith("data:")) {
+    return uploadSingleImage(logo, "logos");
+  }
+  return null;
+};
+
 // POST /api/users/supplier
 export const createSupplierByAdmin = async (req, res) => {
   try {
+    const body = req.body || {};
     const {
       name,
       phone,
       address,
       password,
-      logo,
       businessName,
       commissionRate = 0.05,
       type,
-    } = req.body;
+    } = body;
 
-    if (!name?.trim() || !phone?.trim() || !password || !address?.trim()) {
+    if (!name?.trim() || !phone?.trim() || !password) {
       return res.status(400).json({
         success: false,
-        message:
-          "الحقول التالية مطلوبة: الاسم، رقم الهاتف، كلمة المرور، العنوان ",
+        message: "الحقول التالية مطلوبة: الاسم، رقم الهاتف، كلمة المرور",
       });
     }
 
-    if (!type || !["accessoire", "spart_parts"].includes(type)) {
+    const normalizedType = normalizeSupplierType(type);
+    if (!normalizedType || !["accessoire", "spart_parts"].includes(normalizedType)) {
       return res.status(400).json({
         success: false,
         message: "نوع المورد مطلوب ويجب أن يكون: accessoire أو spart_parts",
       });
     }
 
-    const cleanPhone = phone.trim().replace(/[^\d+]/g, "");
+    const cleanPhone = String(phone).trim().replace(/[^\d+]/g, "");
 
     if (!/^(?:0[5-7]\d{8}|\+213[5-7]\d{8})$/.test(cleanPhone)) {
       return res.status(400).json({
@@ -267,18 +301,21 @@ export const createSupplierByAdmin = async (req, res) => {
       });
     }
 
-    if (password.length < 6) {
+    if (String(password).length < 6) {
       return res.status(400).json({
         success: false,
         message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل",
       });
     }
 
-    if (
-      Number.isNaN(Number(commissionRate)) ||
-      commissionRate < 0 ||
-      commissionRate > 1
-    ) {
+    let numericCommission = Number(commissionRate);
+    if (Number.isNaN(numericCommission)) {
+      numericCommission = 0.05;
+    } else if (numericCommission > 1 && numericCommission <= 100) {
+      numericCommission = numericCommission / 100;
+    }
+
+    if (numericCommission < 0 || numericCommission > 1) {
       return res.status(400).json({
         success: false,
         message: "نسبة العمولة يجب أن تكون رقمًا بين 0 و 1",
@@ -294,23 +331,28 @@ export const createSupplierByAdmin = async (req, res) => {
       });
     }
 
-    // Handle logo upload (only if provided)
-    let logoUrl = null;
-    if (logo && typeof logo === "string" && logo.startsWith("data:image")) {
-      logoUrl = await uploadSingleImage(logo, "logos");
-    }
+    // Handle logo upload (supports both Flutter multipart/form-data file and base64)
+    const logoUrl = await uploadIncomingLogo(req);
+
+    const cleanName = String(name).trim();
+    const cleanAddress =
+      address && String(address).trim() ? String(address).trim() : "غير محدد";
+    const cleanBusinessName =
+      businessName && String(businessName).trim()
+        ? String(businessName).trim()
+        : cleanName;
 
     // ─── Create ──────────────────────────────────────────────
     const supplier = await User.create({
-      name: name.trim(),
+      name: cleanName,
       phone: cleanPhone,
-      password, // will be hashed in pre-save
-      address: address.trim(),
+      password: String(password), // will be hashed in pre-save
+      address: cleanAddress,
       role: "supplier",
       logo: logoUrl,
-      businessName: businessName?.trim(),
-      commissionRate: Number(commissionRate),
-      type,
+      businessName: cleanBusinessName,
+      commissionRate: numericCommission,
+      type: normalizedType,
       isActive: true,
     });
 
@@ -335,17 +377,17 @@ export const createSupplierByAdmin = async (req, res) => {
 export const editSupplierByAdmin = async (req, res) => {
   try {
     const { id } = req.params;
+    const body = req.body || {};
     const {
       name,
       phone,
       address,
       password,
-      logo,
       businessName,
       commissionRate,
       isActive,
       type,
-    } = req.body;
+    } = body;
 
     const supplier = await User.findById(id);
     if (!supplier || supplier.role !== "supplier") {
@@ -355,46 +397,57 @@ export const editSupplierByAdmin = async (req, res) => {
       });
     }
 
-    if (phone && phone !== supplier.phone) {
-      const existing = await User.findOne({ phone });
+    const cleanPhone = phone ? String(phone).trim().replace(/[^\d+]/g, "") : "";
+    if (cleanPhone && cleanPhone !== supplier.phone) {
+      const existing = await User.findOne({ phone: cleanPhone });
       if (existing) {
         return res.status(409).json({
           success: false,
           message: "رقم الهاتف مسجل لمستخدم آخر",
         });
       }
+      supplier.phone = cleanPhone;
     }
 
-    // Handle logo update
-    if (logo && typeof logo === "string" && logo.startsWith("data:")) {
-      // Upload new logo to R2
-      const newLogoUrl = await uploadSingleImage(logo, "logos");
-
-      // Delete old logo from R2 if exists
+    // Handle logo update (multipart file or base64)
+    const newLogoUrl = await uploadIncomingLogo(req);
+    if (newLogoUrl) {
       if (supplier.logo) {
         await deleteFileByUrl(supplier.logo);
       }
-
       supplier.logo = newLogoUrl;
     }
 
     // Update other fields
-    if (name) supplier.name = name.trim();
-    if (phone) supplier.phone = phone.trim().replace(/[^\d+]/g, "");
-    if (address) supplier.address = address.trim();
-    if (businessName) supplier.businessName = businessName.trim();
-
-    if (commissionRate !== undefined) {
-      supplier.commissionRate = Number(commissionRate);
+    if (name && String(name).trim()) supplier.name = String(name).trim();
+    if (address !== undefined && String(address).trim()) {
+      supplier.address = String(address).trim();
+    }
+    if (businessName && String(businessName).trim()) {
+      supplier.businessName = String(businessName).trim();
     }
 
-    if (isActive !== undefined) {
-      supplier.isActive = isActive;
+    if (commissionRate !== undefined && commissionRate !== "") {
+      let c = Number(commissionRate);
+      if (!Number.isNaN(c)) {
+        if (c > 1 && c <= 100) c = c / 100;
+        supplier.commissionRate = c;
+      }
     }
 
-    if (type) supplier.type = type;
+    const parsedActive = parseOptionalBoolean(isActive);
+    if (parsedActive !== undefined) {
+      supplier.isActive = parsedActive;
+    }
 
-    if (password) supplier.password = password;
+    const normalizedType = normalizeSupplierType(type);
+    if (normalizedType && ["accessoire", "spart_parts"].includes(normalizedType)) {
+      supplier.type = normalizedType;
+    }
+
+    if (password && String(password).length >= 6) {
+      supplier.password = String(password);
+    }
 
     await supplier.save();
 
@@ -987,10 +1040,11 @@ export const changeTraderPassword = async (req, res) => {
   }
 };
 
-// PUT /api/users/:id (Admin toggles isActive or edits basic user fields)
+// PUT /api/users/:id (Admin toggles isActive or edits user fields & logo via JSON or FormData)
 export const adminUpdateUserById = async (req, res) => {
   try {
     const { id } = req.params;
+    const body = req.body || {};
     const {
       name,
       phone,
@@ -1000,7 +1054,7 @@ export const adminUpdateUserById = async (req, res) => {
       isActive,
       type,
       password,
-    } = req.body;
+    } = body;
 
     const user = await User.findById(id);
     if (!user) {
@@ -1010,28 +1064,53 @@ export const adminUpdateUserById = async (req, res) => {
       });
     }
 
-    if (phone && phone !== user.phone) {
-      const existing = await User.findOne({ phone });
+    const cleanPhone = phone ? String(phone).trim().replace(/[^\d+]/g, "") : "";
+    if (cleanPhone && cleanPhone !== user.phone) {
+      const existing = await User.findOne({ phone: cleanPhone });
       if (existing) {
         return res.status(409).json({
           success: false,
           message: "رقم الهاتف مسجل لمستخدم آخر",
         });
       }
-      user.phone = String(phone).trim().replace(/[^\d+]/g, "");
+      user.phone = cleanPhone;
+    }
+
+    const newLogoUrl = await uploadIncomingLogo(req);
+    if (newLogoUrl) {
+      if (user.logo) {
+        await deleteFileByUrl(user.logo);
+      }
+      user.logo = newLogoUrl;
     }
 
     if (name !== undefined && String(name).trim()) user.name = String(name).trim();
-    if (address !== undefined) user.address = String(address).trim();
-    if (businessName !== undefined) user.businessName = String(businessName).trim();
-    if (commissionRate !== undefined && user.role === "supplier") {
-      user.commissionRate = Number(commissionRate);
+    if (address !== undefined && String(address).trim()) {
+      user.address = String(address).trim();
+    }
+    if (businessName !== undefined && String(businessName).trim()) {
+      user.businessName = String(businessName).trim();
+    }
+    if (
+      commissionRate !== undefined &&
+      commissionRate !== "" &&
+      user.role === "supplier"
+    ) {
+      let c = Number(commissionRate);
+      if (!Number.isNaN(c)) {
+        if (c > 1 && c <= 100) c = c / 100;
+        user.commissionRate = c;
+      }
     }
     if (type !== undefined && user.role === "supplier") {
-      user.type = type === "spare_parts" ? "spart_parts" : type;
+      const normalizedType = normalizeSupplierType(type);
+      if (["accessoire", "spart_parts"].includes(normalizedType)) {
+        user.type = normalizedType;
+      }
     }
-    if (typeof isActive === "boolean") {
-      user.isActive = isActive;
+    const parsedActive = parseOptionalBoolean(isActive);
+    if (parsedActive !== undefined) {
+      user.isActive = parsedActive;
     }
     if (password && String(password).length >= 6) {
       user.password = String(password);
